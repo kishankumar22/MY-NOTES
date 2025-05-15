@@ -1,0 +1,579 @@
+import React, { useState, useEffect } from "react";
+import { toast } from "react-toastify";
+import axiosInstance from "../../config";
+
+interface OTPVerificationModalProps {
+  email: string;
+  onVerify: () => void;
+  onClose: () => void;
+  onResend: () => Promise<void>;
+}
+
+const OTPVerificationModal: React.FC<OTPVerificationModalProps> = ({
+  email,
+  onVerify,
+  onClose,
+  onResend,
+}) => {
+  const [otp, setOtp] = useState<string>("");
+  const [isResending, setIsResending] = useState<boolean>(false);
+  const [countdown, setCountdown] = useState<number>(60);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (otp.length !== 6) {
+      setError("OTP must be 6 digits");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+    
+    try {
+      const response = await axiosInstance.post("/verify-otp", {
+        email,
+        otp,
+      });
+
+      if (response.status === 200) {
+        toast.success("OTP verified successfully!");
+        onVerify();
+      }
+    } catch (error: any) {
+      console.error("OTP verification error:", error);
+      const errorMsg =
+        error.response?.data?.error ||
+        "Invalid OTP. Please try again.";
+      setError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setIsResending(true);
+    try {
+      await onResend();
+      setCountdown(60);
+      setError(null);
+      toast.success("New OTP sent to your email!");
+    } catch (error) {
+      toast.error("Failed to resend OTP. Please try again.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const handleOtpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.replace(/\D/g, ''); // Only allow numbers
+    setOtp(value);
+    setError(null); // Clear error when user types
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-800">Verify OTP</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 focus:outline-none"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p className="mb-4 text-gray-600">
+          We've sent a 6-digit OTP to <strong className="text-blue-600">{email}</strong>
+        </p>
+
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="block text-gray-700 text-sm font-bold mb-2">
+              Enter OTP
+            </label>
+            <input
+              type="text"
+              className={`shadow appearance-none border rounded w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 ${
+                error ? "border-red-500 focus:ring-red-200" : "border-gray-300 focus:ring-blue-200"
+              }`}
+              value={otp}
+              onChange={handleOtpChange}
+              placeholder="Enter 6-digit code"
+              maxLength={6}
+              required
+              autoFocus
+            />
+            {error && (
+              <p className="text-red-500 text-xs italic mt-1">{error}</p>
+            )}
+          </div>
+
+          <div className="flex justify-between items-center mb-4">
+            <button
+              type="submit"
+              disabled={otp.length !== 6 || isSubmitting}
+              className={`bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-opacity-50 transition-colors ${
+                (otp.length !== 6 || isSubmitting) ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+            >
+              {isSubmitting ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Verifying...
+                </span>
+              ) : "Verify OTP"}
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700 font-medium py-2 px-4 rounded focus:outline-none"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+
+        <div className="text-center mt-4">
+          {countdown > 0 ? (
+            <p className="text-gray-500 text-sm">
+              Resend OTP in <span className="font-medium">{countdown}s</span>
+            </p>
+          ) : (
+            <button
+              onClick={handleResend}
+              disabled={isResending}
+              className={`text-blue-600 hover:text-blue-800 font-medium text-sm focus:outline-none ${
+                isResending ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+            >
+              {isResending ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Sending...
+                </span>
+              ) : "Resend OTP"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default OTPVerificationModal;
+
+
+const express = require('express');
+const db = require('../config/db');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const sql = require('mssql');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+require('dotenv').config(); // Add this to load environment variables
+
+const router = express.Router();
+
+// Configure email transporter using environment variables
+const transporter = nodemailer.createTransport({
+    service: 'gmail',  // Use service instead of host/port for Gmail
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD,
+    },
+});
+
+// Verify transporter connection on startup
+transporter.verify((error) => {
+    if (error) {
+        console.error('❌ SMTP Connection Error:', error);
+    } else {
+        console.log('✅ SMTP Server is ready to send emails');
+    }
+});
+
+// Store OTPs temporarily (in production, use a database or Redis)
+const otpStore = new Map();
+
+// Generate a 6-digit OTP
+function generateOTP() {
+    return crypto.randomInt(100000, 999999).toString();
+}
+
+// Send OTP email with improved error handling
+async function sendOTPEmail(email, otp) {
+    try {
+        const mailOptions = {
+            from: `"Password Varification from Admin Panel" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: 'Your Login OTP  OFrm Admin Panel',
+            text: `Your OTP for login is: ${otp}\nThis OTP is valid for 10 minutes.`,
+            html: `
+                <div style="font-family: Arial, sans-serif;">
+                    <h2 style="color: #2563eb;">Your Login OTP</h2>
+                    <p>Please use the following OTP to complete your login:</p>
+                    <div style="font-size: 24px; font-weight: bold; margin: 20px 0;">${otp}</div>
+                    <p>This code will expire in 10 minutes.</p>
+                </div>
+            `,
+        };
+
+        await transporter.sendMail(mailOptions);
+        console.log(`OTP email sent to ${email}`);
+    } catch (error) {
+        console.error('❌ Email sending error:', error);
+        throw new Error('Failed to send OTP email');
+    }
+}
+
+// User Login Route (first step)
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    // Validate input
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    try {
+        const pool = await db.poolConnect;
+        const query = 'SELECT * FROM [user] WHERE email = @email';
+        const request = pool.request();
+        request.input('email', sql.VarChar, email);
+
+        const result = await request.query(query);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const user = result.recordset[0];
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        
+        if (!passwordMatch) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Generate OTP
+        const otp = generateOTP();
+        otpStore.set(email, { 
+            otp, 
+            expiresAt: Date.now() + 600000, // 10 minutes
+            attempts: 0 // Track OTP attempts
+        });
+
+        // Send OTP email
+        await sendOTPEmail(email, otp);
+
+        // Return response without sensitive data
+        const { password: _, ...userDetails } = user;
+
+        return res.status(200).json({
+            success: true,
+            message: 'OTP sent to email',
+            user: userDetails,
+        });
+
+    } catch (error) {
+        console.error('❌ Login error:', error);
+        return res.status(500).json({ 
+            error: 'An error occurred during login. Please try again.' 
+        });
+    }
+});
+
+// Verify OTP Route with enhanced security
+router.post('/verify-otp', async (req, res) => {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+        return res.status(400).json({ error: 'Email and OTP are required' });
+    }
+
+    try {
+        const storedOtpData = otpStore.get(email);
+
+        if (!storedOtpData) {
+            return res.status(404).json({ error: 'OTP not found or expired' });
+        }
+
+        // Check attempts (prevent brute force)
+        if (storedOtpData.attempts >= 3) {
+            otpStore.delete(email);
+            return res.status(429).json({ 
+                error: 'Too many attempts. Please request a new OTP.' 
+            });
+        }
+
+        // Update attempts
+        otpStore.set(email, {
+            ...storedOtpData,
+            attempts: storedOtpData.attempts + 1
+        });
+
+        if (Date.now() > storedOtpData.expiresAt) {
+            otpStore.delete(email);
+            return res.status(400).json({ error: 'OTP expired' });
+        }
+
+        if (otp !== storedOtpData.otp) {
+            return res.status(401).json({ error: 'Invalid OTP' });
+        }
+
+        // OTP is valid - get user details
+        const pool = await db.poolConnect;
+        const query = 'SELECT * FROM [user] WHERE email = @email';
+        const request = pool.request();
+        request.input('email', sql.VarChar, email);
+
+        const result = await request.query(query);
+        const user = result.recordset[0];
+        
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Generate JWT token
+        const token = jwt.sign(
+            { 
+                userId: user.id, 
+                email: user.email,
+                role: user.roleId // Include role if needed
+            },
+            process.env.JWT_SECRET || 'your-strong-secret-key',
+            { expiresIn: '1h' }
+        );
+
+        // Clear OTP after successful verification
+        otpStore.delete(email);
+
+        // Return response without sensitive data
+        const { password: _, ...userDetails } = user;
+
+        return res.status(200).json({
+            success: true,
+            message: 'OTP verified successfully',
+            token,
+            user: userDetails,
+        });
+
+    } catch (error) {
+        console.error('❌ OTP verification error:', error);
+        return res.status(500).json({ 
+            error: 'An error occurred during OTP verification. Please try again.' 
+        });
+    }
+});
+
+// Resend OTP Route with rate limiting
+router.post('/resend-otp', async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+    }
+
+    try {
+        // Check if user exists
+        const pool = await db.poolConnect;
+        const query = 'SELECT id FROM [user] WHERE email = @email';
+        const request = pool.request();
+        request.input('email', sql.VarChar, email);
+
+        const result = await request.query(query);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Generate new OTP
+        const otp = generateOTP();
+        otpStore.set(email, { 
+            otp, 
+            expiresAt: Date.now() + 600000, // 10 minutes
+            attempts: 0
+        });
+
+        // Send OTP email
+        await sendOTPEmail(email, otp);
+
+        return res.status(200).json({
+            success: true,
+            message: 'New OTP sent to email',
+        });
+
+    } catch (error) {
+        console.error('❌ Resend OTP error:', error);
+        return res.status(500).json({ 
+            error: 'Failed to resend OTP. Please try again.' 
+        });
+    }
+});
+
+module.exports = router;
+
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER='kishan143ku@gmail.com'
+EMAIL_PASSWORD='xebu ziey qhca vzxg'
+JWT_SECRET=your-strong-secret-key
+
+// components/SignIn.tsx
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { toast } from "react-toastify";
+import axiosInstance from "../../config";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
+import OTPVerificationModal from "./OTPVerificationModal";
+
+const SignIn: React.FC = () => {
+  const [email, setEmail] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showOTPModal, setShowOTPModal] = useState<boolean>(false);
+  const [loginData, setLoginData] = useState<{ token: string; user: any } | null>(null);
+  const { isLoggedIn, login } = useAuth();
+  const navigate = useNavigate();
+
+  const togglePasswordVisibility = () => {
+    setShowPassword((prev) => !prev);
+  };
+
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    try {
+      const response = await axiosInstance.post("/login", { email, password });
+      const data = response.data;
+
+      if (response.status === 200) {
+        // Store login data but don't login yet
+        setLoginData(data);
+        // Show OTP modal
+        setShowOTPModal(true);
+        toast.info("OTP sent to your email");
+      }
+    } catch (error: any) {
+      console.error("Login error:", error);
+
+      if (error.response) {
+        const errorMsg =
+          error.response.data.error || "An error occurred. Please try again later.";
+        setErrorMessage(errorMsg);
+        toast.error(errorMsg);
+      } else {
+        setErrorMessage("An error occurred. Please try again later.");
+        toast.error("An error occurred. Please try again later.");
+      }
+    }
+  };
+
+  const handleResendOTP = async () => {
+    try {
+      await axiosInstance.post("/resend-otp", { email });
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const handleOTPVerificationSuccess = () => {
+    if (loginData) {
+      login(loginData.token, loginData.user);
+      navigate("/", { state: { loginSuccess: true } });
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      navigate("/");
+    }
+  }, [isLoggedIn, navigate]);
+
+  return (
+    <div className="flex items-center justify-center h-screen bg-gray-100">
+      <div className="bg-white shadow-md rounded-lg p-8 w-96">
+        <h2 className="text-2xl font-bold mb-6 text-center">Admin Login</h2>
+        <form onSubmit={handleLogin}>
+          {errorMessage && <p className="text-red-500 text-sm mb-4">{errorMessage}</p>}
+          <div className="mb-4">
+            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="email">
+              Email
+            </label>
+            <input
+              type="email"
+              id="email"
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring focus:ring-blue-300"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="mb-4 relative">
+            <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
+              Password
+            </label>
+            <input
+              type={showPassword ? "text" : "password"}
+              id="password"
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring focus:ring-blue-300 pr-10"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-3 top-6.5 flex items-center text-gray-600"
+              onClick={togglePasswordVisibility}
+            >
+              {showPassword ? <FaEyeSlash /> : <FaEye />}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <button
+              type="submit"
+              className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:ring focus:ring-blue-300"
+            >
+              Login
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {showOTPModal && (
+        <OTPVerificationModal
+          email={email}
+          onVerify={handleOTPVerificationSuccess}
+          onClose={() => setShowOTPModal(false)}
+          onResend={handleResendOTP}
+        />
+      )}
+    </div>
+  );
+};
+
+export default SignIn;
