@@ -1,0 +1,124 @@
+
+Next.js Project IIS Hosting Guide
+===================================
+
+1) web.config (Place in your project root):
+--------------------------------------------
+<configuration>
+  <system.webServer>
+    <handlers>
+      <add name="iisnode" path="server.js" verb="*" modules="iisnode" />
+    </handlers>
+    <rewrite>
+      <rules>
+        <rule name="Next.js Routes" stopProcessing="true">
+          <match url=".*" />
+          <action type="Rewrite" url="server.js" />
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>
+
+2) server.js (Place in your project root):
+--------------------------------------------
+const { createServer } = require('http')
+const next = require('next')
+
+const app = next({ dev: false })
+const handle = app.getRequestHandler()
+
+app.prepare().then(() => {
+  createServer((req, res) => {
+    handle(req, res)
+  }).listen(process.env.PORT || 3000, (err) => {
+    if (err) throw err
+    console.log(`> Server listening on http://localhost:${process.env.PORT || 3000}`)
+  })
+})
+
+3) Self-Signed Certificate Steps (IIS):
+--------------------------------------------
+- Open IIS Manager (inetmgr).
+- Click on your Server in left panel.
+- Double-click "Server Certificates" in middle pane.
+- In Actions pane (right), click "Create Self-Signed Certificate..."
+- Give a friendly name (e.g. localhostCert), choose Personal store, OK.
+- Go to Sites, select your site, click "Bindings..." in Actions pane.
+- Add binding: Type=https, Port=443,(jaha run karta hai port ) choose your certificate, OK.
+- Restart your site.
+
+4). 
+Next.js Project IIS Hosting Guide
+===================================
+
+1) web.config (Place in your project root):
+--------------------------------------------
+<configuration>
+  <system.webServer>
+    <handlers>
+      <add name="iisnode" path="server.js" verb="*" modules="iisnode" />
+    </handlers>
+    <rewrite>
+      <rules>
+        <rule name="Next.js Routes" stopProcessing="true">
+          <match url=".*" />
+          <action type="Rewrite" url="server.js" />
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>
+
+2) server.js (Place in your project root):
+--------------------------------------------
+const { createServer } = require('http')
+const next = require('next')
+
+const app = next({ dev: false })
+const handle = app.getRequestHandler()
+
+app.prepare().then(() => {
+  createServer((req, res) => {
+    handle(req, res)
+  }).listen(process.env.PORT || 3000, (err) => {
+    if (err) throw err
+    console.log(`> Server listening on http://localhost:${process.env.PORT || 3000}`)
+  })
+})
+
+3) Self-Signed Certificate Steps (IIS):
+--------------------------------------------
+- Open IIS Manager (inetmgr).
+- Click on your Server in left panel.
+- Double-click "Server Certificates" in middle panel.
+- In Actions pane (right), click "Create Self-Signed Certificate..."
+- Give a friendly name (e.g. localhostCert), choose Personal store, OK.
+- Go to Sites, select your site, click "Bindings..." in Actions pane.
+- Add binding: Type=https, Port=443,(jaha run karta hai port ) choose your certificate, OK.
+- Restart your site.
+
+4)https://www.iis.net/downloads/microsoft/application-request-routing se  download karo AAR AND enable karo Proxy ko 
+ uske baad pool me identy ko LocalSystem karo 
+
+5) Prerequisites:
+--------------------------------------------
+- Node.js installed on the server
+- IISNode installed (https://github.com/Azure/iisnode)
+- Application Pool set to "No Managed Code"
+- Test with `npm run build` and `npm run start` before deploying
+
+Happy Hosting!
+
+
+
+
+5) Prerequisites:
+--------------------------------------------
+- Node.js installed on the server
+- IISNode installed (https://github.com/Azure/iisnode)
+- SSR Installed 
+- Application Pool set to "No Managed Code"
+- Test with `npm run build` and `npm run dev` before deploying
+
+Happy Hosting!
