@@ -3,3 +3,62 @@ Admin-username
 123456- Pass 
 
 https://suttoncoldfieldhinduassociation.elpimo.com/
+
+
+------------------------------
+Add Table In  JK Table 
+Notes For table 
+
+CREATE TABLE Books (
+    BookId INT PRIMARY KEY IDENTITY(1,1),
+    IsbnNumber VARCHAR(20) NOT NULL,
+    Title NVARCHAR(255) NOT NULL,
+    Barcode NVARCHAR(100),
+    Author NVARCHAR(255),
+    BookPhoto NVARCHAR(500),
+    Details TEXT,
+    CourseId INT,
+    Price DECIMAL(10, 2),
+    SubjectId INT,
+    PublicationId INT,
+    IsAvailable BIT DEFAULT 1,
+    TotalCopies INT DEFAULT 1,
+    AvailableCopies INT DEFAULT 1,
+    Edition NVARCHAR(50),
+    Language NVARCHAR(50),
+    PublishedYear INT,
+    IsActive BIT DEFAULT 1,
+    CreatedBy NVARCHAR(100),
+    CreatedOn DATETIME DEFAULT GETDATE(),
+    ModifiedBy NVARCHAR(100),
+    ModifiedOn DATETIME,
+
+    -- Corrected Foreign Key Constraints
+    CONSTRAINT FK_Books_Subject FOREIGN KEY (SubjectId) REFERENCES Subject(SubId),
+    CONSTRAINT FK_Books_Publication FOREIGN KEY (PublicationId) REFERENCES Publication(PubId),
+    CONSTRAINT FK_Books_Course FOREIGN KEY (CourseId) REFERENCES Course(id)
+);
+
+
+CREATE TABLE BookIssue (
+    IssueId INT PRIMARY KEY IDENTITY(1,1),
+    BookId INT NOT NULL,
+    StudentId INT NOT NULL,
+    IssueDate DATETIME NOT NULL,
+    DueDate DATETIME NOT NULL,
+    ReturnDate DATETIME,
+    Remarks TEXT,
+    Status NVARCHAR(20) CHECK (Status IN ('issued', 'returned', 'overdue')),
+    PenaltyId INT, -- Optional FK if you have Penalty table
+    IsRenewed BIT DEFAULT 0,
+    CreatedBy NVARCHAR(100),
+    CreatedOn DATETIME DEFAULT GETDATE(),
+    ModifiedBy NVARCHAR(100),
+    ModifiedOn DATETIME,
+
+    -- Foreign Key Constraints
+    CONSTRAINT FK_BookIssue_Book FOREIGN KEY (BookId) REFERENCES Books(BookId),
+    CONSTRAINT FK_BookIssue_Student FOREIGN KEY (StudentId) REFERENCES Student(id)
+    -- If you have a Penalty table:
+    -- , CONSTRAINT FK_BookIssue_Penalty FOREIGN KEY (PenaltyId) REFERENCES Penalty(PenaltyId)
+);
