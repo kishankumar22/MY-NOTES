@@ -1,504 +1,68 @@
-import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
-import { getConnection } from '@/app/lib/db';
-import logger from '@/app/lib/logger';
-import { otpStore } from '../login/route';
+USE [jkconsultancyadmindb]
+GO
+/****** Object:  Table [dbo].[LibraryPayment]    Script Date: 30-06-2025 18:27:53 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[LibraryPayment](
+	[PaymentId] [int] IDENTITY(1,1) NOT NULL,
+	[StudentId] [int] NOT NULL,
+	[IssueId] [int] NOT NULL,
+	[AmountPaid] [float] NOT NULL,
+	[PaymentMode] [varchar](50) NULL,
+	[TransactionId] [nvarchar](100) NULL,
+	[ReceiveBy] [nvarchar](100) NULL,
+	[CreatedOn] [datetime] NULL,
+	[CreatedBy] [nvarchar](100) NULL,
+	[ModifiedBy] [nvarchar](100) NULL,
+	[ModifiedOn] [datetime] NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[PaymentId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Penalty]    Script Date: 30-06-2025 18:27:53 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Penalty](
+	[PenaltyId] [int] IDENTITY(1,1) NOT NULL,
+	[IssueId] [int] NOT NULL,
+	[Amount] [float] NOT NULL,
+	[Status] [varchar](10) NULL,
+	[CreatedOn] [datetime] NULL,
+	[CreatedBy] [nvarchar](100) NULL,
+	[ModifiedBy] [nvarchar](100) NULL,
+	[ModifiedOn] [datetime] NULL,
+	[Remarks] [nvarchar](255) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[PenaltyId] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+SET IDENTITY_INSERT [dbo].[Penalty] ON 
 
-export async function POST(req: NextRequest) {
-  try {
-    const { email, otp, role } = await req.json();
-    if (!email || !otp || !role) {
-      return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
-    }
-
-    const storedOtp = otpStore[email];
-    if (!storedOtp || storedOtp.otp !== otp || storedOtp.expires < Date.now()) {
-      return NextResponse.json({ message: 'Invalid or expired OTP' }, { status: 401 });
-    }
-
-    if (storedOtp.role !== role) {
-      return NextResponse.json({ message: 'Invalid role for OTP' }, { status: 401 });
-    }
-
-    delete otpStore[email];
-
-    const pool = await getConnection();
-
-    if (role === 'admin') {
-      const result = await pool
-        .request()
-        .input('email', email)
-        .query('SELECT * FROM [User] WHERE email = @email');
-
-      if (result.recordset.length === 0) {
-        return NextResponse.json({ message: 'User not found' }, { status: 404 });
-      }
-
-      const user = result.recordset[0];
-      const token = jwt.sign({ userId: user.user_id, role: 'admin' }, process.env.JWT_SECRET!, {
-        expiresIn: '1h',
-      });
-
-      return NextResponse.json({
-        token,
-        user: { name: user.name, profilePic: user.profile_pic_url },
-      });
-    } else {
-      const result = await pool
-        .request()
-        .input('email', email)
-        .query('SELECT * FROM Student WHERE email = @email');
-
-      if (result.recordset.length === 0) {
-        return NextResponse.json({ message: 'Student not found' }, { status: 404 });
-      }
-
-      const student = result.recordset[0];
-      const token = jwt.sign({ studentId: student.id, role: 'student' }, process.env.JWT_SECRET!, {
-        expiresIn: '1h',
-      });
-
-      return NextResponse.json({
-        token,
-        user: { name: `${student.fName} ${student.lName}`, profilePic: student.studentImage },
-      });
-    }
-  } catch (error) {
-    logger.error(`OTP verification error: ${error}`);
-    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
-  }
-}
-------------------------------------------------------------------------------------------------------------------------------------------------
-import { NextRequest, NextResponse } from 'next/server';
-import { getConnection } from '@/app/lib/db';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import { sendOtp } from '@/app/lib/sendOtp';
-import logger from '@/app/lib/logger';
-
-// In-memory OTP store (replace with Redis or DB in production)
-const otpStore: { [key: string]: { otp: string; expires: number; role: string } } = {};
-
-export async function POST(req: NextRequest) {
-  try {
-    const { email, password, dob, role } = await req.json();
-    if (!email || !role || (role === 'admin' && !password) || (role === 'student' && !dob)) {
-      return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
-    }
-
-    const pool = await getConnection();
-    const rememberMe = req.headers.get('X-Remember-Me') === 'true';
-
-    // Check if valid token exists for remembered users
-    const authHeader = req.headers.get('Authorization');
-    if (rememberMe && authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId?: number; studentId?: number; role: string };
-        if (decoded.role !== role) {
-          return NextResponse.json({ message: 'Invalid role in token' }, { status: 401 });
-        }
-        const userData = await getUserData(pool, email, role);
-        if (!userData) {
-          return NextResponse.json({ message: 'User not found' }, { status: 404 });
-        }
-        return NextResponse.json({
-          token,
-          user: userData,
-        });
-      } catch (error) {
-        logger.warn(`Invalid token provided: ${error}`);
-        // Proceed with normal login if token is invalid
-      }
-    }
-
-    if (role === 'admin') {
-      const result = await pool
-        .request()
-        .input('email', email)
-        .query('SELECT * FROM [User] WHERE email = @email');
-
-      if (result.recordset.length === 0) {
-        return NextResponse.json({ message: 'Invalid email' }, { status: 401 });
-      }
-
-      const user = result.recordset[0];
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-
-      if (!isPasswordValid) {
-        return NextResponse.json({ message: 'Invalid password' }, { status: 401 });
-      }
-
-      if (rememberMe) {
-        const token = jwt.sign({ userId: user.user_id, role: 'admin' }, process.env.JWT_SECRET!, {
-          expiresIn: '7d',
-        });
-        return NextResponse.json({
-          token,
-          user: { name: user.name, profilePic: user.profile_pic_url },
-        });
-      }
-
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      otpStore[email] = {
-        otp,
-        expires: Date.now() + 10 * 60 * 1000,
-        role: 'admin',
-      };
-      try {
-        await sendOtp(email, otp);
-        return NextResponse.json({ otpRequired: true });
-      } catch (error) {
-        logger.error(`Failed to send OTP: ${error}`);
-        return NextResponse.json({ message: 'Failed to send OTP' }, { status: 500 });
-      }
-    } else {
-      const result = await pool
-        .request()
-        .input('email', email)
-        .input('dob', dob)
-        .query('SELECT * FROM Student WHERE email = @email AND dob = @dob');
-
-      if (result.recordset.length === 0) {
-        return NextResponse.json({ message: 'Invalid email or date of birth' }, { status: 401 });
-      }
-
-      const student = result.recordset[0];
-
-      if (rememberMe) {
-        const token = jwt.sign({ studentId: student.id, role: 'student' }, process.env.JWT_SECRET!, {
-          expiresIn: '7d',
-        });
-        return NextResponse.json({
-          token,
-          user: { name: `${student.fName} ${student.lName}`, profilePic: student.studentImage },
-        });
-      }
-
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      otpStore[email] = {
-        otp,
-        expires: Date.now() + 10 * 60 * 1000,
-        role: 'student',
-      };
-      try {
-        await sendOtp(email, otp);
-        return NextResponse.json({ otpRequired: true });
-      } catch (error) {
-        logger.error(`Failed to send OTP: ${error}`);
-        return NextResponse.json({ message: 'Failed to send OTP' }, { status: 500 });
-      }
-    }
-  } catch (error) {
-    logger.error(`Login error: ${error}`);
-    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
-  }
-}
-
-async function getUserData(pool: any, email: string, role: string) {
-  try {
-    if (role === 'admin') {
-      const result = await pool
-        .request()
-        .input('email', email)
-        .query('SELECT * FROM [User] WHERE email = @email');
-      if (result.recordset.length > 0) {
-        const user = result.recordset[0];
-        return { name: user.name, profilePic: user.profile_pic_url };
-      }
-    } else {
-      const result = await pool
-        .request()
-        .input('email', email)
-        .query('SELECT * FROM Student WHERE email = @email');
-      if (result.recordset.length > 0) {
-        const student = result.recordset[0];
-        return { name: `${student.fName} ${student.lName}`, profilePic: student.studentImage };
-      }
-    }
-    return null;
-  } catch (error) {
-    logger.error(`Error fetching user data: ${error}`);
-    return null;
-  }
-}
-
-// Expose OTP store for verification in otp/route.ts
-export { otpStore };
------------------------------------------------------------------------------------------
-'use client';
-
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { toast } from 'react-toastify';
-import Image from 'next/image';
-import pic from '../../public/images/library.jpg';
-
-const LoginPage = () => {
-  const router = useRouter();
-  const [role, setRole] = useState<'admin' | 'student'>('admin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [dob, setDob] = useState('');
-  const [otp, setOtp] = useState('');
-  const [isOtpSent, setIsOtpSent] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    const storedRole = localStorage.getItem('role');
-    const storedRememberMe = localStorage.getItem('rememberMe');
-
-    if (token && storedRememberMe === 'true' && storedRole) {
-      fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Remember-Me': 'true',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ email: localStorage.getItem('email') || '', role: storedRole }),
-      })
-        .then(response => response.json()
-          .then(data => ({ data, response }))
-        )
-        .then(({ data, response }) => {
-          if (response.ok && data.token) {
-            if (storedRole === 'admin') {
-              router.push('/admin/students');
-            } else if (storedRole === 'student') {
-              router.push('/student/my-account');
-            }
-            router.refresh();
-          } else {
-            localStorage.removeItem('token');
-            localStorage.removeItem('role');
-            localStorage.removeItem('rememberMe');
-            localStorage.removeItem('email');
-          }
-        })
-        .catch(error => {
-          console.error('Token verification error:', error);
-          localStorage.removeItem('token');
-          localStorage.removeItem('role');
-          localStorage.removeItem('rememberMe');
-          localStorage.removeItem('email');
-        });
-    }
-  }, [router]);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const body = role === 'admin' 
-        ? { email, password, role }
-        : { email, dob, role };
-      
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Remember-Me': rememberMe.toString(),
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        if (data.otpRequired) {
-          setIsOtpSent(true);
-          setIsModalOpen(true);
-          toast.success('OTP sent to your email');
-        } else {
-          localStorage.setItem('token', data.token);
-          localStorage.setItem('role', role);
-          localStorage.setItem('email', email);
-          if (rememberMe) {
-            localStorage.setItem('rememberMe', 'true');
-          } else {
-            localStorage.removeItem('rememberMe');
-            localStorage.removeItem('token');
-            localStorage.removeItem('role');
-            localStorage.removeItem('email');
-          }
-          toast.success('Logged in successfully');
-          router.push(role === 'admin' ? '/admin/students' : '/student/my-account');
-          router.refresh();
-        }
-      } else {
-        toast.error(data.message || 'Login failed');
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      toast.error('An error occurred during login');
-    }
-  };
-
-  const handleOtpVerification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/auth/otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp, role }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('role', role);
-        localStorage.setItem('email', email);
-        if (rememberMe) {
-          localStorage.setItem('rememberMe', 'true');
-        } else {
-          localStorage.removeItem('rememberMe');
-          localStorage.removeItem('token');
-          localStorage.removeItem('role');
-          localStorage.removeItem('email');
-        }
-        setIsModalOpen(false);
-        setIsOtpSent(false);
-        setOtp('');
-        toast.success('OTP verified successfully');
-        router.push(role === 'admin' ? '/admin/students' : '/student/my-account');
-        router.refresh();
-      } else {
-        toast.error(data.message || 'OTP verification failed');
-      }
-    } catch (error) {
-      console.error('OTP verification error:', error);
-      toast.error('An error occurred during OTP verification');
-    }
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setOtp('');
-    setIsOtpSent(false);
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-100 to-blue-200 p-4">
-      <div className="bg-white p-8 rounded-xl shadow-xl w-full max-w-md">
-        <h2 className="text-3xl font-bold text-center mb-6 text-blue-700">🔐 Login</h2>
-        <div className="flex justify-center mb-6">
-          <Image
-            src={pic}
-            alt="Library Logo"
-            width={100}
-            height={100}
-            className="rounded-full border-4 border-blue-500 shadow-md"
-          />
-        </div>
-        <div className="flex justify-center gap-4 mb-4">
-          <label className="inline-flex items-center">
-            <input
-              type="radio"
-              value="admin"
-              checked={role === 'admin'}
-              onChange={() => setRole('admin')}
-              className="form-radio text-blue-600 mr-2"
-            />
-            <span className="text-gray-700">Librarian</span>
-          </label>
-          <label className="inline-flex items-center">
-            <input
-              type="radio"
-              value="student"
-              checked={role === 'student'}
-              onChange={() => setRole('student')}
-              className="form-radio text-blue-600 mr-2"
-            />
-            <span className="text-gray-700">Student</span>
-          </label>
-        </div>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full mt-1 p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-              required
-            />
-          </div>
-          {role === 'admin' ? (
-            <div>
-              <label className="block text-sm font-semibold text-gray-700">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full mt-1 p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                required
-              />
-            </div>
-          ) : (
-            <div>
-              <label className="block text-sm font-semibold text-gray-700">Date of Birth</label>
-              <input
-                type="date"
-                value={dob}
-                onChange={(e) => setDob(e.target.value)}
-                className="w-full mt-1 p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                required
-              />
-            </div>
-          )}
-          <label className="inline-flex items-center">
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              className="form-checkbox text-blue-600 mr-2"
-            />
-            <span className="text-gray-700">Remember Me</span>
-          </label>
-          <button
-            type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded transition duration-200"
-          >
-            Login
-          </button>
-        </form>
-        {isModalOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
-              <h3 className="text-xl font-bold mb-4 text-blue-700">Enter OTP</h3>
-              <form onSubmit={handleOtpVerification} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700">OTP</label>
-                  <input
-                    type="text"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    className="w-full mt-1 p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    required
-                  />
-                </div>
-                <div className="flex justify-end space-x-2">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="bg-gray-500 hover:bg-gray-600 text-white p-2 rounded transition duration-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded transition duration-200"
-                  >
-                    Verify OTP
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export default LoginPage;
---------------------------------------------------------------------
+INSERT [dbo].[Penalty] ([PenaltyId], [IssueId], [Amount], [Status], [CreatedOn], [CreatedBy], [ModifiedBy], [ModifiedOn], [Remarks]) VALUES (1, 4, 10, N'unpaid', CAST(N'2025-06-30T17:30:27.520' AS DateTime), N'admin', NULL, NULL, N' OverDues by 4 days')
+SET IDENTITY_INSERT [dbo].[Penalty] OFF
+GO
+ALTER TABLE [dbo].[LibraryPayment] ADD  DEFAULT (getdate()) FOR [CreatedOn]
+GO
+ALTER TABLE [dbo].[Penalty] ADD  DEFAULT ('unpaid') FOR [Status]
+GO
+ALTER TABLE [dbo].[Penalty] ADD  DEFAULT (getdate()) FOR [CreatedOn]
+GO
+ALTER TABLE [dbo].[LibraryPayment]  WITH CHECK ADD FOREIGN KEY([IssueId])
+REFERENCES [dbo].[BookIssue] ([IssueId])
+GO
+ALTER TABLE [dbo].[LibraryPayment]  WITH CHECK ADD FOREIGN KEY([StudentId])
+REFERENCES [dbo].[Student] ([id])
+GO
+ALTER TABLE [dbo].[Penalty]  WITH CHECK ADD FOREIGN KEY([IssueId])
+REFERENCES [dbo].[BookIssue] ([IssueId])
+GO
+ALTER TABLE [dbo].[Penalty]  WITH CHECK ADD CHECK  (([Status]='unpaid' OR [Status]='paid'))
+GO
