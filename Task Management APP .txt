@@ -1,0 +1,78 @@
+Task Management App 
+1. create  team - we can create  team   team name  ==> It / Sourcing / Catelouge   and role= admin / subadmin / teamlead /employee 
+2. create  user/ employee -  create  user  hre is the user list
+3.task aassigment -
+4.task  tracker
+5. login  admin
+
+Pages-Admin
+1. login admin/user
+2.add  Team 
+3.add user  give role or  when select  team add user  in that team 
+4.Task Assignment
+5. task update  by user
+
+ table 
+1. Team
+---- 
+id (PK), name, createdAt, createdBy
+
+2. User
+----
+id (PK), teamId (FK → Team.id), name, email, passwordHash, role, createdAt
+
+3. Task
+----
+id (PK), teamId (FK), title, description, status, timeEstimate, createdAt, createdBy
+
+4. Task_Assignment
+---------------
+taskId (FK → Task.id), userId (FK → User.id)
+→ allows multiple users per task
+
+5. Subtask
+-------
+id (PK), parentTaskId (FK → Task.id), title, status, createdAt
+
+6. Task_Comment
+------------
+id (PK), taskId (FK), authorId (FK → User.id), message, createdAt
+
+7. Task_Progress
+-------------
+id (PK), taskId (FK), userId (FK), progressPercent, note, updatedAt
+
+
+1. admin login  by password - and email 
+2. make team - IT Department 
+3. make teamMember with role or  task assign karte time role ko select kar sakte hai 
+4.task assignment 
+
+1. Status	Description
+To Do	Task assigned but not started.
+In Progress	Task under work.
+Completed	Task completed by employee.
+Forwarded	Task forwarded to next employee.
+Closed	Final stage team ne task close kar diya.
+---------------------------------------------------------------------
+
+2. Bonus Features (Optional):
+File attachments (per task).
+Comments/remarks (per task stage).
+Email/push notifications on task assignment or forwarding.
+Gantt chart (project tracking).
+Export reports (Excel/PDF).
+----------------------------------------------------------------
+
+ 1. is app me  first login  only admin  user email and pass word se  2. admin task assign kar sakta hai 3.   mujhe first of team  create karna hoga  uske  baad user create karna padega   uske baad task dena hai  ek team ke user  ko hi task ko   team aur user connect honge ek doosre sse  es team ka user alag team  me kaam na kar sake  4. each task assign ke baad   user ko asshign kar sakta  hai  ek task me multiple user honge   aue koi user kisi ko task ko  assign kar sakta  hai jab  use koi  task mila ho ya  usne kuch task kiya ho  5. eache task ke  sath chat ka feacher ho sath me  aur sub  task bhi ho sakte hao task  ke  6.   sab task me user ke liye sare cheese rahnge jo task ke pass hai  7.  user kewal aapne task ko update kar sakte hai aur  aur aapne progress  update kar sakte hai aur doosre kaam ko  refers kar sakte  hai  doosre user ko   jan task progress 100% complete ho jaye to task compllet ho jaaye   8. admin  sara chese dekh sake dasboard par  track kar sake  kon kya kar raha hai   in dono image se dekh lo  fileds wagera  9.  admin login ke baad   dashboard par rahega uske baad hamare paas team create karne ka  button ho  use click kare tea ka name like team create ho jaaye  aur   user/ eployee create ka  same ho   crud dono me  10.  admin task ko assign kare to wah  task assgn ment par clcik karega  to  wah  select team karega  uske baad  user  to sare user  ki list aayega  jise checkj karege to wah  us team me  add ho jaye   11. task ka status 1. Status	Description
+To Do	Task assigned but not started.
+In Progress	Task under work.
+Completed	Task completed by employee.
+Forwarded	Task forwarded to next employee.
+Closed	Final stage team ne task close kar diya. 12.  ek task  ko kai user mulple  chunke me kar sakte hai  aur   user ne jotask kiya hai wo task ko update kare ge like kya  changes kiya usne aur  kitne % work kar diya   same  is tarike se saub task ko bhi manage kar  sakte hai  us task ko singe user bhi kar sakta  hair  mulple user bhi kar sakte   hai   13. user task ko pahle  save karega aur  work progress likega uske baad  kisi doosre ko  refer karega  is type se   satart me  admin task ko assingn kitya rahega  aur yea sab sare cheese trac aur chat ka bhi feacher bhi rahana chahiye    14. technologi nextjs.  aur ye DATABASE_URL="sqlserver://localhost:1433;database=jkconsultancyadmindb;integratedSecurity=true;trustServerCertificate=true"  aur koi suggestion de do 
+
+1.Monday.com
+2.clickup
+3.wrike 
+
+
