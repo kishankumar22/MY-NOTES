@@ -74,5 +74,159 @@ Closed	Final stage team ne task close kar diya. 12.  ek task  ko kai user mulple
 1.Monday.com
 2.clickup
 3.wrike 
+------------------------------------------------------------------------------------
+Task Management App database and cmd 
 
+USE [TaskManagement]
+GO
+/****** Object:  User [kishankk]    Script Date: 22-07-2025 18:20:51 ******/
+CREATE USER [kishankk] FOR LOGIN [kishankk] WITH DEFAULT_SCHEMA=[dbo]
+GO
+ALTER ROLE [db_ddladmin] ADD MEMBER [kishankk]
+GO
+ALTER ROLE [db_datareader] ADD MEMBER [kishankk]
+GO
+ALTER ROLE [db_datawriter] ADD MEMBER [kishankk]
+GO
+/****** Object:  Table [dbo].[_prisma_migrations]    Script Date: 22-07-2025 18:20:51 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[_prisma_migrations](
+	[id] [varchar](36) NOT NULL,
+	[checksum] [varchar](64) NOT NULL,
+	[finished_at] [datetimeoffset](7) NULL,
+	[migration_name] [nvarchar](250) NOT NULL,
+	[logs] [nvarchar](max) NULL,
+	[rolled_back_at] [datetimeoffset](7) NULL,
+	[started_at] [datetimeoffset](7) NOT NULL,
+	[applied_steps_count] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Role]    Script Date: 22-07-2025 18:20:51 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Role](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[Name] [nvarchar](1000) NOT NULL,
+	[CreatedOn] [datetime2](7) NOT NULL,
+ CONSTRAINT [Role_pkey] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[User]    Script Date: 22-07-2025 18:20:51 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[User](
+	[Id] [int] IDENTITY(1,1) NOT NULL,
+	[Name] [nvarchar](1000) NOT NULL,
+	[Email] [nvarchar](1000) NOT NULL,
+	[Password] [nvarchar](1000) NOT NULL,
+	[RoleId] [int] NOT NULL,
+	[TeamId] [int] NULL,
+	[CreatedOn] [datetime2](7) NOT NULL,
+	[CreatedBy] [int] NULL,
+	[ModifiedBy] [int] NULL,
+	[ModifiedOn] [datetime2](7) NOT NULL,
+ CONSTRAINT [User_pkey] PRIMARY KEY CLUSTERED 
+(
+	[Id] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+INSERT [dbo].[_prisma_migrations] ([id], [checksum], [finished_at], [migration_name], [logs], [rolled_back_at], [started_at], [applied_steps_count]) VALUES (N'513c099b-cc85-43cb-8e6f-2c676dfdbb0b', N'a1afd62abaef503c9eb91f99b1ee92d764ef6a1a25e39fb45471ba0735b140e0', CAST(N'2025-07-22T05:43:53.7730024+00:00' AS DateTimeOffset), N'20250722054353_init', NULL, NULL, CAST(N'2025-07-22T05:43:53.7631271+00:00' AS DateTimeOffset), 1)
+GO
+SET IDENTITY_INSERT [dbo].[Role] ON 
+
+INSERT [dbo].[Role] ([Id], [Name], [CreatedOn]) VALUES (1, N'Admin', CAST(N'2025-07-22T09:34:02.2950000' AS DateTime2))
+INSERT [dbo].[Role] ([Id], [Name], [CreatedOn]) VALUES (2, N'Subadmin', CAST(N'2025-07-22T09:34:02.3970000' AS DateTime2))
+INSERT [dbo].[Role] ([Id], [Name], [CreatedOn]) VALUES (3, N'Teamlead', CAST(N'2025-07-22T09:34:02.4040000' AS DateTime2))
+INSERT [dbo].[Role] ([Id], [Name], [CreatedOn]) VALUES (4, N'Employee', CAST(N'2025-07-22T09:34:02.4090000' AS DateTime2))
+SET IDENTITY_INSERT [dbo].[Role] OFF
+GO
+SET IDENTITY_INSERT [dbo].[User] ON 
+
+INSERT [dbo].[User] ([Id], [Name], [Email], [Password], [RoleId], [TeamId], [CreatedOn], [CreatedBy], [ModifiedBy], [ModifiedOn]) VALUES (1, N'Kishan Kumar', N'kumarkishan73001@gmail.com', N'$2b$10$7vr6IOhw1ytQFiEVDKdmL.eyfrEM1KHyCSvBWV8kwbyiZljs85JDa', 1, NULL, CAST(N'2025-07-22T09:34:04.2190000' AS DateTime2), NULL, NULL, CAST(N'2025-07-22T09:34:04.2220000' AS DateTime2))
+SET IDENTITY_INSERT [dbo].[User] OFF
+GO
+SET ANSI_PADDING ON
+GO
+/****** Object:  Index [Role_Name_key]    Script Date: 22-07-2025 18:20:51 ******/
+ALTER TABLE [dbo].[Role] ADD  CONSTRAINT [Role_Name_key] UNIQUE NONCLUSTERED 
+(
+	[Name] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+GO
+SET ANSI_PADDING ON
+GO
+/****** Object:  Index [User_Email_key]    Script Date: 22-07-2025 18:20:51 ******/
+ALTER TABLE [dbo].[User] ADD  CONSTRAINT [User_Email_key] UNIQUE NONCLUSTERED 
+(
+	[Email] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+GO
+ALTER TABLE [dbo].[_prisma_migrations] ADD  DEFAULT (getdate()) FOR [started_at]
+GO
+ALTER TABLE [dbo].[_prisma_migrations] ADD  DEFAULT ((0)) FOR [applied_steps_count]
+GO
+ALTER TABLE [dbo].[Role] ADD  CONSTRAINT [Role_CreatedOn_df]  DEFAULT (getdate()) FOR [CreatedOn]
+GO
+ALTER TABLE [dbo].[User] ADD  CONSTRAINT [User_CreatedOn_df]  DEFAULT (getdate()) FOR [CreatedOn]
+GO
+ALTER TABLE [dbo].[User]  WITH CHECK ADD  CONSTRAINT [User_RoleId_fkey] FOREIGN KEY([RoleId])
+REFERENCES [dbo].[Role] ([Id])
+ON UPDATE CASCADE
+GO
+ALTER TABLE [dbo].[User] CHECK CONSTRAINT [User_RoleId_fkey]
+GO
+
+
+
+USE TaskManagement;
+GO
+GRANT SELECT ON dbo.[User] TO kishankk;
+GO
+USE TaskManagement;
+GO
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.[User] TO kishankk;
+GO
+
+SELECT COUNT(*) FROM dbo.[User];
+
+USE TaskManagement;
+GO
+GRANT CREATE TABLE, ALTER, SELECT, INSERT, UPDATE, DELETE ON DATABASE::TaskManagement TO kishankk;
+GO
+
+USE TaskManagement;
+GO
+EXEC sp_addrolemember 'db_ddladmin', 'kishankk';  -- Grants schema modification permissions
+EXEC sp_addrolemember 'db_datareader', 'kishankk'; -- Grants SELECT
+EXEC sp_addrolemember 'db_datawriter', 'kishankk'; -- Grants INSERT, UPDATE, DELETE
+GO
+
+
+DATABASE_URL="sqlserver://localhost:1433;database=TaskManagement;user=kishankk;password=Kishan;trustServerCertificate=true"
+DB_USER=kishankk
+DB_PASSWORD=Kishan
+DB_SERVER=localhost
+DB_NAME=TaskManagement
+DB_PORT=1433
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USER=kishan143ku@gmail.com
+EMAIL_PASS=xebu ziey qhca vzxg
+JWT_SECRET=your_secure_jwt_secret_1234567890abcdef
+NODE_ENV=development
 
