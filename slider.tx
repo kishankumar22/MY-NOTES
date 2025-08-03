@@ -1,0 +1,202 @@
+import { NextResponse } from 'next/server';
+import prisma from '@/app/lib/db';
+import { logger } from '@/app/lib/logger';
+import path from 'path';
+import fs from 'fs/promises';
+
+
+export async function DELETE(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const docId = parseInt(searchParams.get('id') || '');
+
+    if (!docId || isNaN(docId)) {
+      return NextResponse.json({ success: false, error: 'Invalid document ID' }, { status: 400 });
+    }
+
+    // Find the document by ID
+    const document = await prisma.taskDocument.findUnique({
+      where: { Id: docId },
+    });
+
+    if (!document) {
+      return NextResponse.json({ success: false, error: 'Document not found' }, { status: 404 });
+    }
+
+    // Delete the file from disk
+    const filePath = path.join(process.cwd(), 'public', 'images', 'task', document.FileName);
+    try {
+      await fs.unlink(filePath);
+    } catch (err) {
+      logger.warn('Failed to delete document file', { error: err });
+    }
+
+    // Delete the document from the database
+    await prisma.taskDocument.delete({
+      where: { Id: docId },
+    });
+
+    logger.info(`Deleted document ID: ${docId}`);
+    return NextResponse.json({ success: true, message: 'Document deleted successfully' });
+  } catch (error) {
+    logger.error('Failed to delete document', { error });
+    return NextResponse.json({ success: false, error: 'Failed to delete document' }, { status: 500 });
+  }
+}
+
+delete-document  (specific  documents)
+path= task/delete-document/route.ts
+
+-------------------------------------------------------------
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
+import { FaRegArrowAltCircleRight, FaPlay, FaPause } from "react-icons/fa";
+import axiosInstance from "../../config";
+
+const NotificationCircular = () => {
+  const [isScrolling, setIsScrolling] = useState(true);
+  const [notifications, setNotifications] = useState([]);
+  const scrollRef = useRef(null);
+  const contentRef = useRef(null);
+  const scrollSpeed = 1;
+  const requestRef = useRef();
+  const previousTimeRef = useRef();
+
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const response = await axiosInstance.get('/notifications/all-notification');
+        // Duplicate notifications only if there are less than 4 to ensure smooth scrolling
+        const neededDuplicates = response.data.length < 4 ? 
+          [...response.data, ...response.data, ...response.data] : 
+          response.data;
+        setNotifications(neededDuplicates);
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+      }
+    };
+
+    fetchNotifications();
+  }, []);
+
+  const animateScroll = useCallback((time) => {
+    if (previousTimeRef.current !== undefined && scrollRef.current && contentRef.current) {
+      // Only scroll if there's content to scroll through
+      if (contentRef.current.scrollHeight > scrollRef.current.clientHeight) {
+        scrollRef.current.scrollTop += scrollSpeed;
+        
+        // Reset to top when reaching the bottom (with buffer)
+        if (scrollRef.current.scrollTop >= contentRef.current.scrollHeight - scrollRef.current.clientHeight - 10) {
+          scrollRef.current.scrollTop = 0;
+        }
+      }
+    }
+    previousTimeRef.current = time;
+    requestRef.current = requestAnimationFrame(animateScroll);
+  }, []);
+
+  useEffect(() => {
+    if (isScrolling) {
+      requestRef.current = requestAnimationFrame(animateScroll);
+    }
+    return () => {
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
+  }, [isScrolling, animateScroll]);
+
+  const toggleScrolling = () => {
+    setIsScrolling(prev => !prev);
+  };
+
+  return (
+    <div className="bg-white h-heightsec flex flex-col">
+      {/* Header */}
+      <div className="flex items-center h-10 w-full bg-white flex-shrink-0">
+        <h2 className="text-sm p-1 sm:text-lg md:text-xl flex h-8 w-full mb-2 font-bold bg-blue-200">
+          Notices & Circulars
+        </h2>
+        <div className="justify-start border-t-4 w-full border-blue-800 mb-2"></div>
+      </div>
+
+      {/* Notification Slider */}
+      <div
+        className="relative flex-1 overflow-hidden"
+        ref={scrollRef}
+        onMouseEnter={() => setIsScrolling(false)}
+        onMouseLeave={() => setIsScrolling(true)}
+      >
+        <div ref={contentRef}>
+          {notifications.map((notification, index) => (
+            <div
+              key={`${notification.notification_id}-${index}`}
+              className="border-yellow-500 rounded bg-white mb-2 p-2"
+            >
+              <div className="text-sky-500 pb-0.5 text-xs sm:text-sm">
+                <b className="font-normal ml-6 md:ml-8 text-black">Date uploaded:</b>{" "}
+                {new Date(notification.created_on).toLocaleDateString('en-GB')}
+              </div>
+              <div className="flex items-start">
+                <FaRegArrowAltCircleRight className="w-4 h-4 sm:w-6 sm:h-6 text-red-700 mr-2" />
+                <div className="flex-1">
+                  <h1 className="text-xs font-bold sm:text-sm lg:text-base text-black">
+                    <a
+                      className="font-normal flex items-center hover:text-blue-400"
+                      href={notification.notification_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <span className="block overflow-hidden text-ellipsis whitespace-normal">
+                        {notification.notification_message}
+                      </span>
+                    </a>
+                  </h1>
+                </div>
+              </div>
+              <hr className="border-b-1 border-black mt-2" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="bg-blue-900 p-2 flex justify-between items-center flex-shrink-0">
+        <button className="text-white border-2 border-white text-xs sm:text-sm py-1 px-2 sm:px-4 shadow-md hover:bg-blue-200 hover:border-blue-200 hover:text-black">
+          <Link to="/notificationlist">View All Notices / Circulars</Link>
+        </button>
+        <button
+          className="bg-yellow-600 text-white border-2 border-white p-2 shadow-md hover:bg-blue-200 hover:border-blue-200 hover:text-black"
+          onClick={toggleScrolling}
+        >
+          {isScrolling ? <FaPause /> : <FaPlay />}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default NotificationCircular;
+
+-------------------------------------------------------------------------------   
+
+{/* Footer Bottom */}
+     <motion.div
+  className="flex flex-col md:flex-row justify-between items-center bg-[#283c65] text-white px-4 md:px-10 py-4 text-xs shadow-inner"
+  initial="hidden"
+  animate={isInView ? "visible" : "hidden"}
+  variants={sectionVariants}
+>
+  <motion.p variants={itemVariants} className="text-center text-[14px]">
+    © <span className="font-semibold">2025</span> — 
+    <span className="font-bold ml-1">JK Institute Of Pharmacy</span>. All rights reserved.
+  </motion.p>
+
+  <motion.p variants={itemVariants} className="text-center text-[14px] mt-2 md:mt-0">
+    Developed by <a href="https://www.mezzex.com/" target="_blank" rel="noopener noreferrer" className="text-blue-500 font-bold hover:underline">Mezzex</a>
+  </motion.p>
+</motion.div>
+
+---------------------------------------------------------------------------------
+
