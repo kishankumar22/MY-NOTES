@@ -1,0 +1,1681 @@
+1.generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  Id                  Int                   @id @default(autoincrement())
+  Name                String                @unique
+  CreatedOn           DateTime              @default(now())
+  Users               User[]
+  RolePagePermissions RolePagePermission[]  // ✅ Correct relation added
+
+}
+
+model User {
+  Id                  Int                   @id @default(autoincrement())
+  Name                String
+  Email               String                @unique
+  Password            String
+  RoleId              Int
+  TeamId              Int?
+  Team                Team?                 @relation(fields: [TeamId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  CreatedOn           DateTime              @default(now())
+  CreatedBy           String?
+  ModifiedBy          String?
+  ModifiedOn          DateTime?
+  Mobile              String?
+  Photo               String?
+  IsActive            Boolean               @default(true)
+  Role                Role                  @relation(fields: [RoleId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  Tasks               Task[]                @relation("AssignedTasks")
+  Messages            Message[]             @relation("UserMessages")
+  UserPagePermissions UserPagePermission[] // ✅ Correct relation
+  
+  // Fixed TaskAssignment relations
+  Assignments         TaskAssignment[]      @relation("UserAssignments")
+  ForwardedTasks      TaskAssignment[]      @relation("ForwardedTasks")
+  
+  @@index([RoleId])
+  @@index([TeamId])
+}
+
+model Team {
+  Id          Int       @id @default(autoincrement())
+  TeamName    String
+  Description String
+  IsActive    Boolean   @default(true)
+  CreatedOn   DateTime  @default(now())
+  CreatedBy   String?
+  ModifiedBy  String?
+  ModifiedOn  DateTime?
+  Users       User[]
+  Tasks       Task[]
+}
+
+model Task {
+  Id            Int              @id @default(autoincrement())
+  TaskName      String           @db.VarChar(255)
+  Description   String?          @db.Text
+  Priority      String           @db.VarChar(20)
+  TeamId        Int
+  Status        String           @db.VarChar(20) @default("To Do")
+  DueDate       DateTime?        @db.Date
+  CreatedBy     String?          @db.VarChar(255)
+  CreatedOn     DateTime         @default(now()) @db.DateTime
+  ModifiedBy    String?          @db.VarChar(255)
+  ModifiedOn    DateTime?        @db.DateTime
+  CompletedDate DateTime?        @db.DateTime
+  IsActive      Boolean          @default(true)
+  ParentTaskId  Int?
+  ParentTask    Task?            @relation("SubTasks", fields: [ParentTaskId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  SubTasks      Task[]           @relation("SubTasks")
+  AssigneeId    Int?
+  Assignee      User?            @relation("AssignedTasks", fields: [AssigneeId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  Messages      Message[]        @relation("TaskMessages")
+  Team          Team             @relation(fields: [TeamId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  Documents     TaskDocument[]   @relation("TaskDocuments")
+  Assignments   TaskAssignment[] @relation("TaskAssignments")
+
+  @@index([TeamId])
+  @@index([ParentTaskId])
+  @@index([AssigneeId])
+}
+
+model TaskAssignment {
+  Id           Int       @id @default(autoincrement())
+  TaskId       Int
+  UserId       Int
+  Progress     Int       @default(0)      // Progress percentage (0-100)
+  Remarks      String?   @db.Text         // Additional notes
+  ReferredTo   Int?      // User ID task is forwarded to
+  TimeTracked  Int?      @default(0)      // Time tracked in minutes
+  WorkProgress String?   @db.Text         // Detailed work updates
+  StartTime    DateTime?                  // Start time of assignment
+  EndTime      DateTime?                  // End time of assignment
+  AssignedDate DateTime  @default(now()) @db.DateTime
+  CreatedBy    String?   @db.VarChar(255)
+  CreatedOn    DateTime  @default(now()) @db.DateTime
+  ModifiedBy   String?   @db.VarChar(255)
+  ModifiedOn   DateTime? @db.DateTime
+  
+  // Fixed relations - removed cascade to avoid circular references
+  Task         Task      @relation("TaskAssignments", fields: [TaskId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  User         User      @relation("UserAssignments", fields: [UserId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  ReferredUser User?     @relation("ForwardedTasks", fields: [ReferredTo], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([TaskId])
+  @@index([UserId])
+  @@index([ReferredTo])
+}
+
+model TaskDocument {
+  Id         Int       @id @default(autoincrement())
+  TaskId     Int
+  FileName   String    @db.VarChar(255)
+  CreatedBy  String?   @db.VarChar(255)
+  CreatedOn  DateTime  @default(now()) @db.DateTime
+  ModifiedBy String?   @db.VarChar(255)
+  ModifiedOn DateTime? @db.DateTime
+  Task       Task      @relation("TaskDocuments", fields: [TaskId], references: [Id], onDelete: Cascade)
+
+  @@index([TaskId])
+}
+
+model Message {
+  Id        Int      @id @default(autoincrement())
+  Content   String   @db.Text
+  CreatedOn DateTime @default(now()) @db.DateTime
+  CreatedBy Int
+  User      User     @relation("UserMessages", fields: [CreatedBy], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  TaskId    Int
+  Task      Task     @relation("TaskMessages", fields: [TaskId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  
+  @@index([TaskId])
+  @@index([CreatedBy])
+}
+
+model Page {
+  Id                  Int                   @id @default(autoincrement())
+  PageName            String                @db.VarChar(100)
+  PageUrl             String                @db.VarChar(200)
+  Category            String?               @db.VarChar(50)
+  IsActive            Boolean               @default(true)
+  CreatedBy           Int
+  CreatedOn           DateTime              @default(now())
+  ModifiedBy          Int?
+  ModifiedOn          DateTime?
+  RolePagePermissions RolePagePermission[]
+  UserPagePermissions UserPagePermission[]
+
+  @@index([Category])
+}
+
+model RolePagePermission {
+  Id             Int      @id @default(autoincrement())
+  RoleId         Int
+  PageId         Int
+  CanAccessPage  Boolean  @default(false)
+  CanView        Boolean  @default(false)
+  CanCreate      Boolean  @default(false)
+  CanEdit        Boolean  @default(false)
+  CanDelete      Boolean  @default(false)
+  IsActive       Boolean  @default(true)
+  CreatedBy      Int
+  CreatedOn      DateTime @default(now())
+  Role           Role     @relation(fields: [RoleId], references: [Id])
+  Page           Page     @relation(fields: [PageId], references: [Id])
+
+  @@unique([RoleId, PageId])
+  @@index([RoleId])
+  @@index([PageId])
+}
+
+model UserPagePermission {
+  Id             Int      @id @default(autoincrement())
+  UserId         Int
+  PageId         Int
+  CanAccessPage  Boolean  @default(false)
+  CanView        Boolean  @default(false)
+  CanCreate      Boolean  @default(false)
+  CanEdit        Boolean  @default(false)
+  CanDelete      Boolean  @default(false)
+  IsActive       Boolean  @default(true)
+  CreatedBy      Int
+  CreatedOn      DateTime @default(now())
+  User           User     @relation(fields: [UserId], references: [Id])
+  Page           Page     @relation(fields: [PageId], references: [Id])
+
+  @@unique([UserId, PageId])
+  @@index([UserId])
+  @@index([PageId])
+}
+
+-------------------------------------------------------------------
+2.api/check-access/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { canAccessPage } from '../../lib/checkPermission';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { pageUrl }: { pageUrl: string } = await request.json();
+    const hasAccess = await canAccessPage(pageUrl);
+    
+    return NextResponse.json({ hasAccess });
+  } catch (error) {
+    console.error('Check access API error:', error);
+    return NextResponse.json({ hasAccess: false });
+  }
+}
+-----------------------------------------------------------------
+3.api/check-permissions/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import prisma from '@/app/lib/db';
+import { getUserFromToken } from '../../lib/utils/getUserFromToken';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { pageUrl }: { pageUrl: string } = await request.json();
+    
+    // Current user निकालो
+    const user = await getUserFromToken();
+    if (!user) {
+      return NextResponse.json({ 
+        permissions: {
+          canView: false,
+          canCreate: false,
+          canEdit: false,
+          canDelete: false,
+          canAccessPage: false
+        }
+      });
+    }
+    
+    // Admin है तो सब allow करो
+    if (user.roleId === 1) {
+      return NextResponse.json({ 
+        permissions: {
+          canView: true,
+          canCreate: true,
+          canEdit: true,
+          canDelete: true,
+          canAccessPage: true
+        }
+      });
+    }
+    
+    // Page find करो
+    const page = await prisma.page.findFirst({
+      where: { PageUrl: pageUrl, IsActive: true }
+    });
+    
+    if (!page) {
+      return NextResponse.json({ 
+        permissions: {
+          canView: false,
+          canCreate: false,
+          canEdit: false,
+          canDelete: false,
+          canAccessPage: false
+        }
+      });
+    }
+    
+    // User specific permission check करो
+    const userPermission = await prisma.userPagePermission.findFirst({
+      where: {
+        UserId: user.id,
+        PageId: page.Id,
+        IsActive: true,
+      }
+    });
+    
+    if (userPermission) {
+      return NextResponse.json({ 
+        permissions: {
+          canView: userPermission.CanView,
+          canCreate: userPermission.CanCreate,
+          canEdit: userPermission.CanEdit,
+          canDelete: userPermission.CanDelete,
+          canAccessPage: userPermission.CanAccessPage
+        }
+      });
+    }
+    
+    // Role permission check करो
+    const rolePermission = await prisma.rolePagePermission.findFirst({
+      where: {
+        RoleId: user.roleId!,
+        PageId: page.Id,
+        IsActive: true,
+      }
+    });
+    
+    if (rolePermission) {
+      return NextResponse.json({ 
+        permissions: {
+          canView: rolePermission.CanView,
+          canCreate: rolePermission.CanCreate,
+          canEdit: rolePermission.CanEdit,
+          canDelete: rolePermission.CanDelete,
+          canAccessPage: rolePermission.CanAccessPage
+        }
+      });
+    }
+    
+    // No permission found
+    return NextResponse.json({ 
+      permissions: {
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canAccessPage: false
+      }
+    });
+    
+  } catch (error) {
+    console.error('Check permissions API error:', error);
+    return NextResponse.json({ 
+      permissions: {
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canAccessPage: false
+      }
+    });
+  }
+}
+---------------------------------------------------------
+4.api/role-permissions/route.ts
+import { NextResponse } from 'next/server';
+import prisma from '@/app/lib/db';
+import { logger } from '@/app/lib/logger';
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const roleId = searchParams.get('roleId');
+
+    if (roleId) {
+      const permissions = await prisma.rolePagePermission.findMany({
+        where: { 
+          RoleId: parseInt(roleId),
+          IsActive: true 
+        },
+        include: {
+          Page: true,
+          Role: true,
+        },
+      });
+
+      return NextResponse.json({ success: true, permissions });
+    }
+
+    const allPermissions = await prisma.rolePagePermission.findMany({
+      where: { IsActive: true },
+      include: {
+        Page: true,
+        Role: true,
+      },
+    });
+
+    return NextResponse.json({ success: true, permissions: allPermissions });
+  } catch (error) {
+    logger.error('❌ Failed to fetch role permissions.', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { success: false, error: 'Database error.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { RoleId, PageId, CanAccessPage, CanView, CanCreate, CanEdit, CanDelete, CreatedBy } = body;
+
+    const permission = await prisma.rolePagePermission.upsert({
+      where: {
+        RoleId_PageId: {
+          RoleId: parseInt(RoleId),
+          PageId: parseInt(PageId),
+        },
+      },
+      update: {
+        CanAccessPage: CanAccessPage || false,
+        CanView: CanView || false,
+        CanCreate: CanCreate || false,
+        CanEdit: CanEdit || false,
+        CanDelete: CanDelete || false,
+      },
+      create: {
+        RoleId: parseInt(RoleId),
+        PageId: parseInt(PageId),
+        CanAccessPage: CanAccessPage || false,
+        CanView: CanView || false,
+        CanCreate: CanCreate || false,
+        CanEdit: CanEdit || false,
+        CanDelete: CanDelete || false,
+        CreatedBy: parseInt(CreatedBy),
+      },
+    });
+
+    logger.info('✅ Role permission saved successfully.');
+    return NextResponse.json({ success: true, permission });
+  } catch (error) {
+    logger.error('❌ Failed to save role permission.', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { success: false, error: 'Database error.' },
+      { status: 500 }
+    );
+  }
+}
+===================================================================
+5.api/user-permissions/route.ts
+import { NextResponse } from 'next/server';
+import prisma from '@/app/lib/db';
+import { logger } from '@/app/lib/logger';
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get('userId');
+
+    if (userId) {
+      const permissions = await prisma.userPagePermission.findMany({
+        where: { 
+          UserId: parseInt(userId),
+          IsActive: true 
+        },
+        include: {
+          Page: true,
+          User: {
+            include: {
+              Role: true,
+            },
+          },
+        },
+      });
+
+      return NextResponse.json({ success: true, permissions });
+    }
+
+    const allPermissions = await prisma.userPagePermission.findMany({
+      where: { IsActive: true },
+      include: {
+        Page: true,
+        User: {
+          include: {
+            Role: true,
+          },
+        },
+      },
+    });
+
+    return NextResponse.json({ success: true, permissions: allPermissions });
+  } catch (error) {
+    logger.error('❌ Failed to fetch user permissions.', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { success: false, error: 'Database error.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { UserId, PageId, CanAccessPage, CanView, CanCreate, CanEdit, CanDelete, CreatedBy } = body;
+
+    const permission = await prisma.userPagePermission.upsert({
+      where: {
+        UserId_PageId: {
+          UserId: parseInt(UserId),
+          PageId: parseInt(PageId),
+        },
+      },
+      update: {
+        CanAccessPage: CanAccessPage || false,
+        CanView: CanView || false,
+        CanCreate: CanCreate || false,
+        CanEdit: CanEdit || false,
+        CanDelete: CanDelete || false,
+      },
+      create: {
+        UserId: parseInt(UserId),
+        PageId: parseInt(PageId),
+        CanAccessPage: CanAccessPage || false,
+        CanView: CanView || false,
+        CanCreate: CanCreate || false,
+        CanEdit: CanEdit || false,
+        CanDelete: CanDelete || false,
+        CreatedBy: parseInt(CreatedBy),
+      },
+    });
+
+    logger.info('✅ User permission saved successfully.');
+    return NextResponse.json({ success: true, permission });
+  } catch (error) {
+    logger.error('❌ Failed to save user permission.', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { success: false, error: 'Database error.' },
+      { status: 500 }
+    );
+  }
+}
+
+---------------------------------------------------------
+6.components/ProtectPage.tsx
+'use client';
+import { useEffect, useState, ReactNode } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+
+interface ProtectPageProps {
+  children: ReactNode;
+}
+
+export default function ProtectPage({ children }: ProtectPageProps) {
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+  const pathname = usePathname();
+  const router = useRouter();
+
+  useEffect(() => {
+    checkAccess();
+  }, [pathname]);
+
+  const checkAccess = async () => {
+    try {
+      const response = await fetch('/api/check-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageUrl: pathname })
+      });
+      
+      const data = await response.json();
+      setHasAccess(data.hasAccess);
+      
+    } catch (error) {
+      setHasAccess(false);
+    }
+  };
+
+  // Loading state
+  if (hasAccess === null) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+          <p>Checking permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // No access
+  if (!hasAccess) {
+    return (
+      <div className="flex justify-center items-center min-h-screen bg-gray-50">
+        <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">
+          <div className="text-red-500 text-6xl mb-4">🚫</div>
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
+          <p className="text-gray-600 mb-6">You don't have permission to access this page.</p>
+          <div className="space-x-4">
+            <button 
+              onClick={() => router.back()}
+              className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+            >
+              Go Back
+            </button>
+            <button 
+              onClick={() => router.push('/')}
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+            >
+              Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Has access
+  return <>{children}</>;
+}
+
+---------------------------------------------------------------
+8.components/RolePermissions.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import axiosInstance from '../lib/axios';
+
+interface Role {
+  Id: number;
+  Name: string;
+}
+
+interface Page {
+  Id: number;
+  PageName: string;
+  PageUrl: string;
+  Category?: string;
+}
+
+interface Permission {
+  Id?: number;
+  RoleId: number;
+  PageId: number;
+  CanAccessPage: boolean;
+  CanView: boolean;
+  CanCreate: boolean;
+  CanEdit: boolean;
+  CanDelete: boolean;
+  Page?: Page;
+}
+
+// TypeScript interfaces for API responses
+interface ApiResponse<T> {
+  success: boolean;
+  roles?: T;
+  pages?: T;
+  permissions?: T;
+}
+
+export default function RolePermissions() {
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [pages, setPages] = useState<Page[]>([]);
+  const [selectedRoleId, setSelectedRoleId] = useState<string>('');
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Check if selected role is admin
+  const isSelectedRoleAdmin = parseInt(selectedRoleId) === 1;
+
+  useEffect(() => {
+    fetchRoles();
+    fetchPages();
+  }, []);
+
+  useEffect(() => {
+    if (selectedRoleId) {
+      const role = roles.find(r => r.Id.toString() === selectedRoleId);
+      setSelectedRole(role || null);
+      fetchRolePermissions();
+    }
+  }, [selectedRoleId, roles]);
+
+  const fetchRoles = async () => {
+    try {
+      const response = await axiosInstance.get<ApiResponse<Role[]>>('/api/role');
+      if (response.data.success && response.data.roles) {
+        setRoles(response.data.roles);
+      }
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+    }
+  };
+
+  const fetchPages = async () => {
+    try {
+      const response = await axiosInstance.get<ApiResponse<Page[]>>('/api/pages');
+      if (response.data.success && response.data.pages) {
+        setPages(response.data.pages);
+      }
+    } catch (error) {
+      console.error('Error fetching pages:', error);
+    }
+  };
+
+  const fetchRolePermissions = async () => {
+    try {
+      const response = await axiosInstance.get<ApiResponse<Permission[]>>(`/api/role-permissions?roleId=${selectedRoleId}`);
+      if (response.data.success && response.data.permissions) {
+        setPermissions(response.data.permissions);
+      }
+    } catch (error) {
+      console.error('Error fetching permissions:', error);
+    }
+  };
+
+  const getPermissionForPage = (pageId: number): Permission => {
+    const existing = permissions.find(p => p.PageId === pageId);
+    return existing || {
+      RoleId: parseInt(selectedRoleId),
+      PageId: pageId,
+      CanAccessPage: isSelectedRoleAdmin, // Admin gets all permissions by default
+      CanView: isSelectedRoleAdmin,
+      CanCreate: isSelectedRoleAdmin,
+      CanEdit: isSelectedRoleAdmin,
+      CanDelete: isSelectedRoleAdmin,
+    };
+  };
+
+  const updatePermission = (pageId: number, field: keyof Permission, value: boolean) => {
+    // Don't allow changes for admin role
+    if (isSelectedRoleAdmin) return;
+
+    const updatedPermissions = permissions.map(p => 
+      p.PageId === pageId ? { ...p, [field]: value } : p
+    );
+    
+    if (!permissions.find(p => p.PageId === pageId)) {
+      updatedPermissions.push({
+        RoleId: parseInt(selectedRoleId),
+        PageId: pageId,
+        CanAccessPage: field === 'CanAccessPage' ? value : false,
+        CanView: field === 'CanView' ? value : false,
+        CanCreate: field === 'CanCreate' ? value : false,
+        CanEdit: field === 'CanEdit' ? value : false,
+        CanDelete: field === 'CanDelete' ? value : false,
+      });
+    }
+    
+    setPermissions(updatedPermissions);
+  };
+
+  const savePermissions = async () => {
+    if (isSelectedRoleAdmin) {
+      alert('Cannot modify admin role permissions!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      for (const permission of permissions) {
+        await axiosInstance.post('/api/role-permissions', {
+          ...permission,
+          CreatedBy: 1,
+        });
+      }
+      alert('Role permissions saved successfully!');
+    } catch (error) {
+      console.error('Error saving permissions:', error);
+      alert('Error saving permissions');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-2">
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-gray-800">Role Permissions</h1>
+        <p className="text-sm text-gray-600">Manage role-based permissions for pages and functions</p>
+      </div>
+
+      {/* Role Selection and Info Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        {/* Role Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select Role
+          </label>
+          <select
+            value={selectedRoleId}
+            onChange={(e) => setSelectedRoleId(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="">Choose a role...</option>
+            {roles.map((role) => (
+              <option key={role.Id} value={role.Id}>
+                {role.Name}
+              </option>
+            ))}
+          </select>
+          <p className='p-2 text-sm text-gray-600'>Managing permissions for all users with this role</p>
+        </div>
+
+        {/* Selected Role Information */}
+        {selectedRole && (
+          <div className="lg:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Selected Role Information
+            </label>
+            <div className={`p-3 rounded-lg border-2 ${isSelectedRoleAdmin 
+              ? 'bg-red-50 border-red-200' 
+              : 'bg-blue-50 border-blue-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className={`font-semibold ${isSelectedRoleAdmin ? 'text-red-900' : 'text-blue-900'}`}>
+                    {selectedRole.Name} - {selectedRole.Id} 
+                    {isSelectedRoleAdmin && (
+                      <span className="ml-2 px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                        ADMIN ROLE
+                      </span>
+                    )}
+                  </h3>
+               
+                  <div className="flex items-center gap-4 mt-2 text-xs">
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                      <span className="text-green-700">Access Page</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                      <span className="text-blue-700">View</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                      <span className="text-yellow-700">Create</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                      <span className="text-purple-700">Edit</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                      <span className="text-red-700">Delete</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Save Button - Only show for non-admin roles */}
+                {!isSelectedRoleAdmin && (
+                  <button
+                    onClick={savePermissions}
+                    disabled={loading}
+                    className="bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                  >
+                    {loading ? 'Saving...' : 'Save Permissions'}
+                  </button>
+                )}
+              </div>
+              
+              {isSelectedRoleAdmin && (
+                <div className="mt-2 text-xs text-red-600">
+                  ⚠️ Admin role has full access to all pages and functions. Permissions cannot be modified.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Permissions Table */}
+      {selectedRoleId && (
+        <div className="bg-white shadow-sm rounded-lg border">
+          <div className="px-4 py-3 border-b border-gray-200">
+            <h2 className="text-lg font-medium text-gray-900">Page Permissions</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              <strong>Access Page:</strong> Controls page access | 
+              <strong> Functions:</strong> View, Create, Edit, Delete control specific functionalities
+            </p>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Page Name
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-green-600 uppercase">
+                    Access<br/>Page
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-blue-600 uppercase">
+                    View
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-yellow-600 uppercase">
+                    Create
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-purple-600 uppercase">
+                    Edit
+                  </th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-red-600 uppercase">
+                    Delete
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {pages.map((page) => {
+                  const permission = getPermissionForPage(page.Id);
+                  return (
+                    <tr key={page.Id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2">
+                        <div className="font-medium text-gray-900">{page.PageName}</div>
+                        <div className="text-xs text-gray-500">{page.Category}</div>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedRoleAdmin || permission.CanAccessPage}
+                          onChange={(e) => updatePermission(page.Id, 'CanAccessPage', e.target.checked)}
+                          disabled={isSelectedRoleAdmin}
+                          className="h-3 w-3 text-green-600 focus:ring-green-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedRoleAdmin || permission.CanView}
+                          onChange={(e) => updatePermission(page.Id, 'CanView', e.target.checked)}
+                          disabled={isSelectedRoleAdmin}
+                          className="h-3 w-3 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedRoleAdmin || permission.CanCreate}
+                          onChange={(e) => updatePermission(page.Id, 'CanCreate', e.target.checked)}
+                          disabled={isSelectedRoleAdmin}
+                          className="h-3 w-3 text-yellow-600 focus:ring-yellow-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedRoleAdmin || permission.CanEdit}
+                          onChange={(e) => updatePermission(page.Id, 'CanEdit', e.target.checked)}
+                          disabled={isSelectedRoleAdmin}
+                          className="h-3 w-3 text-purple-600 focus:ring-purple-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedRoleAdmin || permission.CanDelete}
+                          onChange={(e) => updatePermission(page.Id, 'CanDelete', e.target.checked)}
+                          disabled={isSelectedRoleAdmin}
+                          className="h-3 w-3 text-red-600 focus:ring-red-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile View for Better Responsiveness */}
+          <div className="block md:hidden">
+            {pages.map((page) => {
+              const permission = getPermissionForPage(page.Id);
+              return (
+                <div key={page.Id} className="p-4 border-b border-gray-200">
+                  <div className="font-medium text-gray-900 mb-2">{page.PageName}</div>
+                  <div className="text-xs text-gray-500 mb-3">{page.Category}</div>
+                  
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <label className="flex items-center justify-between">
+                      <span className="text-green-700">Access Page</span>
+                      <input
+                        type="checkbox"
+                        checked={isSelectedRoleAdmin || permission.CanAccessPage}
+                        onChange={(e) => updatePermission(page.Id, 'CanAccessPage', e.target.checked)}
+                        disabled={isSelectedRoleAdmin}
+                        className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded disabled:opacity-100"
+                      />
+                    </label>
+                    
+                    <label className="flex items-center justify-between">
+                      <span className="text-blue-700">View</span>
+                      <input
+                        type="checkbox"
+                        checked={isSelectedRoleAdmin || permission.CanView}
+                        onChange={(e) => updatePermission(page.Id, 'CanView', e.target.checked)}
+                        disabled={isSelectedRoleAdmin}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-100"
+                      />
+                    </label>
+                    
+                    <label className="flex items-center justify-between">
+                      <span className="text-yellow-700">Create</span>
+                      <input
+                        type="checkbox"
+                        checked={isSelectedRoleAdmin || permission.CanCreate}
+                        onChange={(e) => updatePermission(page.Id, 'CanCreate', e.target.checked)}
+                        disabled={isSelectedRoleAdmin}
+                        className="h-4 w-4 text-yellow-600 focus:ring-yellow-500 border-gray-300 rounded disabled:opacity-100"
+                      />
+                    </label>
+                    
+                    <label className="flex items-center justify-between">
+                      <span className="text-purple-700">Edit</span>
+                      <input
+                        type="checkbox"
+                        checked={isSelectedRoleAdmin || permission.CanEdit}
+                        onChange={(e) => updatePermission(page.Id, 'CanEdit', e.target.checked)}
+                        disabled={isSelectedRoleAdmin}
+                        className="h-4 w-4 text-purple-600 focus:ring-purple-500 border-gray-300 rounded disabled:opacity-100"
+                      />
+                    </label>
+                    
+                    <label className="flex items-center justify-between col-span-2">
+                      <span className="text-red-700">Delete</span>
+                      <input
+                        type="checkbox"
+                        checked={isSelectedRoleAdmin || permission.CanDelete}
+                        onChange={(e) => updatePermission(page.Id, 'CanDelete', e.target.checked)}
+                        disabled={isSelectedRoleAdmin}
+                        className="h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded disabled:opacity-100"
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+-------------------------------------------------------------------
+9.components/UserPermissions.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import axiosInstance from '../lib/axios';
+
+interface User {
+  Id: number;
+  Name: string;
+  Email: string;
+  Role: {
+    Id: number;
+    Name: string;
+  };
+}
+
+interface Page {
+  Id: number;
+  PageName: string;
+  PageUrl: string;
+  Category?: string;
+}
+
+interface Permission {
+  Id?: number;
+  UserId: number;
+  PageId: number;
+  CanAccessPage: boolean;
+  CanView: boolean;
+  CanCreate: boolean;
+  CanEdit: boolean;
+  CanDelete: boolean;
+  Page?: Page;
+}
+
+interface RolePermission {
+  RoleId: number;
+  PageId: number;
+  CanAccessPage: boolean;
+  CanView: boolean;
+  CanCreate: boolean;
+  CanEdit: boolean;
+  CanDelete: boolean;
+}
+
+// TypeScript interfaces for API responses
+interface ApiResponse<T> {
+  success: boolean;
+  users?: T;
+  pages?: T;
+  permissions?: T;
+}
+
+export default function UserPermissions() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [pages, setPages] = useState<Page[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [userPermissions, setUserPermissions] = useState<Permission[]>([]);
+  const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Check if selected user is admin
+  const isSelectedUserAdmin = selectedUser?.Role.Id === 1;
+
+  useEffect(() => {
+    fetchUsers();
+    fetchPages();
+  }, []);
+
+  useEffect(() => {
+    if (selectedUserId) {
+      const user = users.find(u => u.Id.toString() === selectedUserId);
+      setSelectedUser(user || null);
+      fetchUserPermissions();
+      if (user) {
+        fetchRolePermissions(user.Role.Id);
+      }
+    }
+  }, [selectedUserId, users]);
+
+  const fetchUsers = async () => {
+    try {
+      const response = await axiosInstance.get<ApiResponse<User[]>>('/api/user');
+      if (response.data.success && response.data.users) {
+        setUsers(response.data.users);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    }
+  };
+
+  const fetchPages = async () => {
+    try {
+      const response = await axiosInstance.get<ApiResponse<Page[]>>('/api/pages');
+      if (response.data.success && response.data.pages) {
+        setPages(response.data.pages);
+      }
+    } catch (error) {
+      console.error('Error fetching pages:', error);
+    }
+  };
+
+  const fetchUserPermissions = async () => {
+    try {
+      const response = await axiosInstance.get<ApiResponse<Permission[]>>(`/api/user-permissions?userId=${selectedUserId}`);
+      if (response.data.success && response.data.permissions) {
+        setUserPermissions(response.data.permissions);
+      }
+    } catch (error) {
+      console.error('Error fetching user permissions:', error);
+    }
+  };
+
+  const fetchRolePermissions = async (roleId: number) => {
+    try {
+      const response = await axiosInstance.get<ApiResponse<RolePermission[]>>(`/api/role-permissions?roleId=${roleId}`);
+      if (response.data.success && response.data.permissions) {
+        setRolePermissions(response.data.permissions);
+      }
+    } catch (error) {
+      console.error('Error fetching role permissions:', error);
+    }
+  };
+
+  const getRolePermissionForPage = (pageId: number): RolePermission | null => {
+    return rolePermissions.find(p => p.PageId === pageId) || null;
+  };
+
+  const getUserPermissionForPage = (pageId: number): Permission => {
+    const existing = userPermissions.find(p => p.PageId === pageId);
+    return existing || {
+      UserId: parseInt(selectedUserId),
+      PageId: pageId,
+      CanAccessPage: isSelectedUserAdmin, // Admin gets all permissions by default
+      CanView: isSelectedUserAdmin,
+      CanCreate: isSelectedUserAdmin,
+      CanEdit: isSelectedUserAdmin,
+      CanDelete: isSelectedUserAdmin,
+    };
+  };
+
+  const updateUserPermission = (pageId: number, field: keyof Permission, value: boolean) => {
+    // Don't allow changes for admin users
+    if (isSelectedUserAdmin) return;
+
+    const updatedPermissions = userPermissions.map(p => 
+      p.PageId === pageId ? { ...p, [field]: value } : p
+    );
+    
+    if (!userPermissions.find(p => p.PageId === pageId)) {
+      updatedPermissions.push({
+        UserId: parseInt(selectedUserId),
+        PageId: pageId,
+        CanAccessPage: field === 'CanAccessPage' ? value : false,
+        CanView: field === 'CanView' ? value : false,
+        CanCreate: field === 'CanCreate' ? value : false,
+        CanEdit: field === 'CanEdit' ? value : false,
+        CanDelete: field === 'CanDelete' ? value : false,
+      });
+    }
+    
+    setUserPermissions(updatedPermissions);
+  };
+
+  const savePermissions = async () => {
+    if (isSelectedUserAdmin) {
+      alert('Cannot modify admin permissions!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      for (const permission of userPermissions) {
+        await axiosInstance.post('/api/user-permissions', {
+          ...permission,
+          CreatedBy: 1,
+        });
+      }
+      alert('User permissions saved successfully!');
+    } catch (error) {
+      console.error('Error saving permissions:', error);
+      alert('Error saving permissions');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-4">
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-gray-800">User Permissions</h1>
+        </div>
+
+      {/* User Selection and Info Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        {/* User Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select User
+          </label>
+          <select
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+            <option value="">Choose a user...</option>
+            {users.map((user) => (
+              <option key={user.Id} value={user.Id}>
+                {user.Name} - {user.Role.Name}
+              </option>
+            ))}
+          </select>
+          <p className="text-sm p-2 text-gray-600">Manage user-specific permissions for pages and functions</p>
+        </div>
+
+        {/* Selected User Information */}
+        {selectedUser && (
+          <div className="lg:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Selected User Information
+            </label>
+            <div className={`p-3 rounded-lg border-2 ${isSelectedUserAdmin 
+              ? 'bg-red-50 border-red-200' 
+              : 'bg-blue-50 border-blue-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className={`font-semibold ${isSelectedUserAdmin ? 'text-red-900' : 'text-blue-900'}`}>
+                    {selectedUser.Name}
+                    {isSelectedUserAdmin && (
+                      <span className="ml-2 px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                        ADMIN
+                      </span>
+                    )}
+                  </h3>
+                  <p className={`text-sm ${isSelectedUserAdmin ? 'text-red-700' : 'text-blue-700'}`}>
+                    <strong>Email:</strong> {selectedUser.Email} | 
+                    <strong> Role:</strong> {selectedUser.Role.Name}
+                  </p>
+                  <div className="flex items-center gap-4 mt-2 text-xs">
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                      <span className="text-green-700">Access Page</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                      <span className="text-blue-700">View</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                      <span className="text-yellow-700">Create</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                      <span className="text-purple-700">Edit</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                      <span className="text-red-700">Delete</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Save Button - Only show for non-admin users */}
+                {!isSelectedUserAdmin && (
+                  <button
+                    onClick={savePermissions}
+                    disabled={loading}
+                    className="bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                  >
+                    {loading ? 'Saving...' : 'Save Permissions'}
+                  </button>
+                )}
+              </div>
+              
+              {isSelectedUserAdmin && (
+                <div className="mt-2 text-xs text-red-600">
+                  ⚠️ Admin users have full access to all pages and functions. Permissions cannot be modified.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Permissions Table */}
+      {selectedUserId && (
+        <div className="bg-white shadow-sm rounded-lg border">
+          <div className="px-4 py-3 border-b border-gray-200">
+            <h2 className="text-lg font-medium text-gray-900">Page Permissions</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              User permissions override role permissions. Role permissions shown for reference.
+            </p>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Page
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-green-600 uppercase">
+                    Role<br/>Access
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-green-600 uppercase">
+                    User<br/>Access
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-blue-600 uppercase">
+                    Role<br/>View
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-blue-600 uppercase">
+                    User<br/>View
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-yellow-600 uppercase">
+                    Role<br/>Create
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-yellow-600 uppercase">
+                    User<br/>Create
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-purple-600 uppercase">
+                    Role<br/>Edit
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-purple-600 uppercase">
+                    User<br/>Edit
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-red-600 uppercase">
+                    Role<br/>Delete
+                  </th>
+                  <th className="px-2 py-2 text-center text-xs font-medium text-red-600 uppercase">
+                    User<br/>Delete
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {pages.map((page) => {
+                  const rolePermission = getRolePermissionForPage(page.Id);
+                  const userPermission = getUserPermissionForPage(page.Id);
+                  
+                  return (
+                    <tr key={page.Id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2">
+                        <div className="font-medium text-gray-900">{page.PageName}</div>
+                        <div className="text-xs text-gray-500">{page.Category}</div>
+                      </td>
+                      
+                      {/* Access Page */}
+                      <td className="px-2 py-2 text-center">
+                        <span className={`inline-block w-3 h-3 rounded-full ${
+                          rolePermission?.CanAccessPage ? 'bg-green-500' : 'bg-gray-300'
+                        }`}></span>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedUserAdmin || userPermission.CanAccessPage}
+                          onChange={(e) => updateUserPermission(page.Id, 'CanAccessPage', e.target.checked)}
+                          disabled={isSelectedUserAdmin}
+                          className="h-3 w-3 text-green-600 focus:ring-green-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      
+                      {/* View */}
+                      <td className="px-2 py-2 text-center">
+                        <span className={`inline-block w-3 h-3 rounded-full ${
+                          rolePermission?.CanView ? 'bg-blue-500' : 'bg-gray-300'
+                        }`}></span>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedUserAdmin || userPermission.CanView}
+                          onChange={(e) => updateUserPermission(page.Id, 'CanView', e.target.checked)}
+                          disabled={isSelectedUserAdmin}
+                          className="h-3 w-3 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      
+                      {/* Create */}
+                      <td className="px-2 py-2 text-center">
+                        <span className={`inline-block w-3 h-3 rounded-full ${
+                          rolePermission?.CanCreate ? 'bg-yellow-500' : 'bg-gray-300'
+                        }`}></span>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedUserAdmin || userPermission.CanCreate}
+                          onChange={(e) => updateUserPermission(page.Id, 'CanCreate', e.target.checked)}
+                          disabled={isSelectedUserAdmin}
+                          className="h-3 w-3 text-yellow-600 focus:ring-yellow-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      
+                      {/* Edit */}
+                      <td className="px-2 py-2 text-center">
+                        <span className={`inline-block w-3 h-3 rounded-full ${
+                          rolePermission?.CanEdit ? 'bg-purple-500' : 'bg-gray-300'
+                        }`}></span>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedUserAdmin || userPermission.CanEdit}
+                          onChange={(e) => updateUserPermission(page.Id, 'CanEdit', e.target.checked)}
+                          disabled={isSelectedUserAdmin}
+                          className="h-3 w-3 text-purple-600 focus:ring-purple-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                      
+                      {/* Delete */}
+                      <td className="px-2 py-2 text-center">
+                        <span className={`inline-block w-3 h-3 rounded-full ${
+                          rolePermission?.CanDelete ? 'bg-red-500' : 'bg-gray-300'
+                        }`}></span>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelectedUserAdmin || userPermission.CanDelete}
+                          onChange={(e) => updateUserPermission(page.Id, 'CanDelete', e.target.checked)}
+                          disabled={isSelectedUserAdmin}
+                          className="h-3 w-3 text-red-600 focus:ring-red-500 border-gray-300 rounded disabled:opacity-100"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+----------------------------------------------------------------------------------------------
+10.lib/checkPermission.ts
+
+import prisma from './db';
+import { getUserFromToken } from '../lib/utils/getUserFromToken';
+
+export async function canAccessPage(pageUrl: string): Promise<boolean> {
+  try {
+    // Current user निकालो
+    const user = await getUserFromToken();
+    if (!user) return false;
+    
+    // Admin है तो सब allow करो
+    if (user.roleId === 1) return true;
+    
+    // Page find करो URL से
+    const page = await prisma.page.findFirst({
+      where: { PageUrl: pageUrl, IsActive: true }
+    });
+    
+    if (!page) return false;
+    
+    // User का specific permission check करो
+    const userPermission = await prisma.userPagePermission.findFirst({
+      where: {
+        UserId: user.id,
+        PageId: page.Id,
+        IsActive: true,
+        CanAccessPage: true
+      }
+    });
+    
+    if (userPermission) return true;
+    
+    // Role permission check करो
+    const rolePermission = await prisma.rolePagePermission.findFirst({
+      where: {
+        RoleId: user.roleId!,
+        PageId: page.Id,
+        IsActive: true,
+        CanAccessPage: true
+      }
+    });
+    
+    return !!rolePermission;
+    
+  } catch (error) {
+    console.error('Permission check error:', error);
+    return false;
+  }
+}
+----------------------------------------------------------
+11.lib/usePermissions.ts
+'use client';
+import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
+
+interface Permissions {
+  canView: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canAccessPage: boolean;
+  loading: boolean;
+}
+
+export function usePermissions(): Permissions {
+  const [permissions, setPermissions] = useState<Permissions>({
+    canView: false,
+    canCreate: false,
+    canEdit: false,
+    canDelete: false,
+    canAccessPage: false,
+    loading: true
+  });
+  
+  const pathname = usePathname();
+
+  useEffect(() => {
+    fetchPermissions();
+  }, [pathname]);
+
+  const fetchPermissions = async () => {
+    try {
+      const response = await fetch('/api/check-permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageUrl: pathname })
+      });
+      
+      const data = await response.json();
+      
+      setPermissions({
+        canView: data.permissions.canView || false,
+        canCreate: data.permissions.canCreate || false,
+        canEdit: data.permissions.canEdit || false,
+        canDelete: data.permissions.canDelete || false,
+        canAccessPage: data.permissions.canAccessPage || false,
+        loading: false
+      });
+      
+    } catch (error) {
+      console.error('Error fetching permissions:', error);
+      setPermissions(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  return permissions;
+}
+
+-------------------------------------------------------------------------
+12.sub-admin/task/page.tsx
+
+'use client'
+// आपकी updated file
+import ProtectPage from '@/app/components/ProtectPage';
+import TaskManagement from '@/app/components/TaskManagement';
+import { usePermissions } from '../../lib/usePermissions';
+
+export default function EmployeeTaskPage() {
+  const permissions = usePermissions();
+
+  if (permissions.loading) {
+    return (
+      <ProtectPage>
+        <div className="p-6">
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+            <div className="flex space-x-2">
+              <div className="h-10 bg-gray-200 rounded w-20"></div>
+              <div className="h-10 bg-gray-200 rounded w-20"></div>
+              <div className="h-10 bg-gray-200 rounded w-20"></div>
+              <div className="h-10 bg-gray-200 rounded w-20"></div>
+            </div>
+          </div>
+        </div>
+      </ProtectPage>
+    );
+  }
+
+  return (
+    <ProtectPage>
+      <TaskManagement 
+        userRole="employee"
+        pageTitle="My Tasks"
+        showAllTasks={false}
+      />
+      
+      {/* Buttons with permissions */}
+      <div className="p-6 border-t bg-gray-50">
+        <h3 className="text-lg font-semibold mb-4 text-gray-800">Actions</h3>
+        <div className="flex flex-wrap gap-3">
+          
+          {/* Create Button */}
+          {permissions.canCreate && (
+            <button className="bg-green-500 hover:bg-green-600 text-white font-medium px-6 py-2 rounded-lg shadow-md transition-colors duration-200 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Create
+            </button>
+          )}
+          
+          {/* View Button */}
+          {permissions.canView && (
+            <button className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-6 py-2 rounded-lg shadow-md transition-colors duration-200 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              View
+            </button>
+          )}
+          
+          {/* Edit Button */}
+          {permissions.canEdit && (
+            <button className="bg-yellow-500 hover:bg-yellow-600 text-white font-medium px-6 py-2 rounded-lg shadow-md transition-colors duration-200 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Edit
+            </button>
+          )}
+          
+          {/* Delete Button */}
+          {permissions.canDelete && (
+            <button className="bg-red-500 hover:bg-red-600 text-white font-medium px-6 py-2 rounded-lg shadow-md transition-colors duration-200 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete
+            </button>
+          )}
+        </div>
+        
+        {/* Permission Status Info */}
+        <div className="mt-6 p-4 bg-white rounded-lg border">
+          <h4 className="font-medium text-gray-800 mb-2">Your Permissions:</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div className={`flex items-center gap-2 ${permissions.canCreate ? 'text-green-600' : 'text-gray-400'}`}>
+              <span className={`w-2 h-2 rounded-full ${permissions.canCreate ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+              Create
+            </div>
+            <div className={`flex items-center gap-2 ${permissions.canView ? 'text-blue-600' : 'text-gray-400'}`}>
+              <span className={`w-2 h-2 rounded-full ${permissions.canView ? 'bg-blue-500' : 'bg-gray-300'}`}></span>
+              View
+            </div>
+            <div className={`flex items-center gap-2 ${permissions.canEdit ? 'text-yellow-600' : 'text-gray-400'}`}>
+              <span className={`w-2 h-2 rounded-full ${permissions.canEdit ? 'bg-yellow-500' : 'bg-gray-300'}`}></span>
+              Edit
+            </div>
+            <div className={`flex items-center gap-2 ${permissions.canDelete ? 'text-red-600' : 'text-gray-400'}`}>
+              <span className={`w-2 h-2 rounded-full ${permissions.canDelete ? 'bg-red-500' : 'bg-gray-300'}`}></span>
+              Delete
+            </div>
+          </div>
+        </div>
+      </div>
+    </ProtectPage>
+  );
+}
+
