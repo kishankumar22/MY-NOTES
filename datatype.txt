@@ -1,0 +1,4769 @@
+-- Example:
+UPDATE Task SET CreatedBy = 1 WHERE CreatedBy = 'Kishan Kumar';
+UPDATE Task SET ModifiedBy = 1 WHERE ModifiedBy = 'Kishan Kumar';
+
+npx prisma db push
+
+
+--------------------------------------------------------
+1.generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  Id                  Int                   @id @default(autoincrement())
+  Name                String                @unique
+  CreatedOn           DateTime              @default(now())
+  Users               User[]
+  RolePagePermissions RolePagePermission[]
+}
+
+model User {
+  Id                  Int                   @id @default(autoincrement())
+  Name                String
+  Email               String                @unique
+  Password            String
+  RoleId              Int
+  TeamId              Int?
+  Team                Team?                 @relation(fields: [TeamId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  CreatedOn           DateTime              @default(now())
+  CreatedBy           String?
+  ModifiedBy          String?
+  ModifiedOn          DateTime?
+  Mobile              String?
+  Photo               String?
+  IsActive            Boolean               @default(true)
+  Role                Role                  @relation(fields: [RoleId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  Tasks               Task[]                @relation("AssignedTasks")
+  Messages            Message[]             @relation("UserMessages")
+  UserPagePermissions UserPagePermission[]
+  
+  // TaskAssignment relations
+  Assignments         TaskAssignment[]      @relation("UserAssignments")
+  ForwardedTasks      TaskAssignment[]      @relation("ForwardedTasks")
+  
+  @@index([RoleId])
+  @@index([TeamId])
+}
+
+model Team {
+  Id          Int       @id @default(autoincrement())
+  TeamName    String
+  Description String
+  IsActive    Boolean   @default(true)
+  CreatedOn   DateTime  @default(now())
+  CreatedBy   String?
+  ModifiedBy  String?
+  ModifiedOn  DateTime?
+  Users       User[]
+  Tasks       Task[]
+}
+
+model Task {
+  Id            Int              @id @default(autoincrement())
+  TaskName      String           @db.VarChar(255)
+  Description   String?          @db.Text
+  Priority      String           @db.VarChar(20)
+  TeamId        Int
+  Status        String           @db.VarChar(20) @default("To Do")
+  DueDate       DateTime?        @db.Date
+  CreatedBy     Int?             // Changed from String to Int (User ID)
+  CreatedOn     DateTime         @default(now()) @db.DateTime
+  ModifiedBy    Int?             // Changed from String to Int (User ID)
+  ModifiedOn    DateTime?        @db.DateTime
+  CompletedDate DateTime?        @db.DateTime
+  IsActive      Boolean          @default(true)
+  ParentTaskId  Int?
+  ParentTask    Task?            @relation("SubTasks", fields: [ParentTaskId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  SubTasks      Task[]           @relation("SubTasks")
+  AssigneeId    Int?
+  Assignee      User?            @relation("AssignedTasks", fields: [AssigneeId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  Messages      Message[]        @relation("TaskMessages")
+  Team          Team             @relation(fields: [TeamId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  Documents     TaskDocument[]   @relation("TaskDocuments")
+  Assignments   TaskAssignment[] @relation("TaskAssignments")
+
+  @@index([TeamId])
+  @@index([ParentTaskId])
+  @@index([AssigneeId])
+  @@index([CreatedBy])
+  @@index([ModifiedBy])
+}
+
+model TaskAssignment {
+  Id           Int       @id @default(autoincrement())
+  TaskId       Int
+  UserId       Int
+  Progress     Int       @default(0)
+  Remarks      String?   @db.Text
+  ReferredTo   Int?
+  TimeTracked  Int?      @default(0)
+  WorkProgress String?   @db.Text
+  StartTime    DateTime?
+  EndTime      DateTime?
+  AssignedDate DateTime  @default(now()) @db.DateTime
+  CreatedBy    String?   @db.VarChar(255)
+  CreatedOn    DateTime  @default(now()) @db.DateTime
+  ModifiedBy   String?   @db.VarChar(255)
+  ModifiedOn   DateTime? @db.DateTime
+  
+  Task         Task      @relation("TaskAssignments", fields: [TaskId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  User         User      @relation("UserAssignments", fields: [UserId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  ReferredUser User?     @relation("ForwardedTasks", fields: [ReferredTo], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([TaskId])
+  @@index([UserId])
+  @@index([ReferredTo])
+}
+
+model TaskDocument {
+  Id         Int       @id @default(autoincrement())
+  TaskId     Int
+  FileName   String    @db.VarChar(255)
+  CreatedBy  String?   @db.VarChar(255)
+  CreatedOn  DateTime  @default(now()) @db.DateTime
+  ModifiedBy String?   @db.VarChar(255)
+  ModifiedOn DateTime? @db.DateTime
+  Task       Task      @relation("TaskDocuments", fields: [TaskId], references: [Id], onDelete: Cascade)
+
+  @@index([TaskId])
+}
+
+model Message {
+  Id        Int      @id @default(autoincrement())
+  Content   String   @db.Text
+  CreatedOn DateTime @default(now()) @db.DateTime
+  CreatedBy Int
+  User      User     @relation("UserMessages", fields: [CreatedBy], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  TaskId    Int
+  Task      Task     @relation("TaskMessages", fields: [TaskId], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  
+  @@index([TaskId])
+  @@index([CreatedBy])
+}
+
+model Page {
+  Id                  Int                   @id @default(autoincrement())
+  PageName            String                @db.VarChar(100)
+  PageUrl             String                @db.VarChar(200)
+  Category            String?               @db.VarChar(50)
+  IsActive            Boolean               @default(true)
+  CreatedBy           String
+  CreatedOn           DateTime              @default(now())
+  ModifiedBy          String?
+  ModifiedOn          DateTime?
+
+  RolePagePermissions RolePagePermission[]
+  UserPagePermissions UserPagePermission[]
+
+  @@index([Category])
+}
+
+model RolePagePermission {
+  Id             Int      @id @default(autoincrement())
+  RoleId         Int
+  PageId         Int
+  CanAccessPage  Boolean  @default(false)
+  CanView        Boolean  @default(false)
+  CanCreate      Boolean  @default(false)
+  CanEdit        Boolean  @default(false)
+  CanDelete      Boolean  @default(false)
+  IsActive       Boolean  @default(true)
+  CreatedBy      Int
+  CreatedOn      DateTime @default(now())
+  Role           Role     @relation(fields: [RoleId], references: [Id])
+  Page           Page     @relation(fields: [PageId], references: [Id])
+
+  @@unique([RoleId, PageId])
+  @@index([RoleId])
+  @@index([PageId])
+}
+
+model UserPagePermission {
+  Id             Int      @id @default(autoincrement())
+  UserId         Int
+  PageId         Int
+  CanAccessPage  Boolean  @default(false)
+  CanView        Boolean  @default(false)
+  CanCreate      Boolean  @default(false)
+  CanEdit        Boolean  @default(false)
+  CanDelete      Boolean  @default(false)
+  IsActive       Boolean  @default(true)
+  CreatedBy      Int
+  CreatedOn      DateTime @default(now())
+  User           User     @relation(fields: [UserId], references: [Id])
+  Page           Page     @relation(fields: [PageId], references: [Id])
+
+  @@unique([UserId, PageId])
+  @@index([UserId])
+  @@index([PageId])
+}
+----------------------------------------------------------------------
+2. api/task
+
+import { NextResponse } from 'next/server';
+import prisma from '@/app/lib/db';
+import { logger } from '@/app/lib/logger';
+import { getUserFromToken } from '@/app/lib/utils/getUserFromToken';
+import { uploadFiles } from '../../lib/utils/uploadedFiles';
+
+interface TaskResponse {
+  success: boolean;
+  task?: any;
+  tasks?: any[];
+  error?: string;
+}
+
+export async function GET() {
+  try {
+    const tasks = await prisma.task.findMany({
+      where: { ParentTaskId: null },
+      include: {
+        Team: true,
+        SubTasks: { 
+          include: { 
+            Documents: true,
+            Team: true,
+            Assignee: true
+          } 
+        },
+        Documents: true,
+        Assignee: true,
+      },
+      orderBy: { CreatedOn: 'desc' },
+    });
+
+    // Manually fetch user data for CreatedBy and ModifiedBy
+    const tasksWithUserData = await Promise.all(
+      tasks.map(async (task) => {
+        const createdByUser = task.CreatedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: task.CreatedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        const modifiedByUser = task.ModifiedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: task.ModifiedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        // Also fetch for subtasks
+        const subTasksWithUserData = await Promise.all(
+          task.SubTasks.map(async (subtask) => {
+            const subtaskCreatedByUser = subtask.CreatedBy 
+              ? await prisma.user.findUnique({
+                  where: { Id: subtask.CreatedBy },
+                  select: { Id: true, Name: true, Email: true }
+                })
+              : null;
+
+            const subtaskModifiedByUser = subtask.ModifiedBy 
+              ? await prisma.user.findUnique({
+                  where: { Id: subtask.ModifiedBy },
+                  select: { Id: true, Name: true, Email: true }
+                })
+              : null;
+
+            return {
+              ...subtask,
+              CreatedByUser: subtaskCreatedByUser,
+              ModifiedByUser: subtaskModifiedByUser
+            };
+          })
+        );
+
+        return {
+          ...task,
+          CreatedByUser: createdByUser,
+          ModifiedByUser: modifiedByUser,
+          SubTasks: subTasksWithUserData
+        };
+      })
+    );
+
+    logger.info(`Fetched ${tasks.length} tasks`);
+    return NextResponse.json({ success: true, tasks: tasksWithUserData });
+  } catch (error) {
+    logger.error('Failed to fetch tasks', { error });
+    return NextResponse.json({ success: false, error: 'Database error' }, { status: 500 });
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const user = await getUserFromToken();
+    const formData = await req.formData();
+
+    const taskName = formData.get('taskName') as string;
+    const description = formData.get('description') as string;
+    const priority = (formData.get('priority') as string) || 'Medium';
+    const teamId = parseInt(formData.get('teamId') as string);
+    const status = (formData.get('status') as string) || 'To Do';
+    const dueDate = formData.get('dueDate') as string;
+    const assigneeId = formData.get('assigneeId') ? parseInt(formData.get('assigneeId') as string) : null;
+    const files = formData.getAll('files') as File[];
+    const subtasks = formData.get('subtasks')
+      ? JSON.parse(formData.get('subtasks') as string)
+      : [];
+
+    const createdBy = user?.id; // Save user ID
+
+    if (!taskName || isNaN(teamId)) {
+      return NextResponse.json({ success: false, error: 'Task name and team are required' }, { status: 400 });
+    }
+
+    if (!createdBy) {
+      return NextResponse.json({ success: false, error: 'User authentication required' }, { status: 401 });
+    }
+
+    const team = await prisma.team.findUnique({ where: { Id: teamId, IsActive: true } });
+    if (!team) {
+      return NextResponse.json({ success: false, error: 'Invalid or inactive team' }, { status: 400 });
+    }
+
+    // Create main task
+    const task = await prisma.task.create({
+      data: {
+        TaskName: taskName,
+        Description: description || null,
+        Priority: priority,
+        TeamId: teamId,
+        Status: status,
+        DueDate: dueDate ? new Date(dueDate) : null,
+        CreatedBy: createdBy, // Save user ID
+        IsActive: true,
+        AssigneeId: assigneeId,
+      },
+    });
+
+    // Upload and attach files to main task
+    if (files.length > 0) {
+      const uploadedFiles = await uploadFiles(files, ['images', 'task']);
+      for (const file of uploadedFiles) {
+        await prisma.taskDocument.create({
+          data: {
+            TaskId: task.Id,
+            FileName: file.fileName,
+            CreatedBy: user?.name, // TaskDocument still uses string
+          },
+        });
+      }
+    }
+
+    // Create subtasks
+    const createdSubtasks = [];
+    for (const subtask of subtasks) {
+      const subtaskFiles = formData.getAll(`subtaskFiles_${subtask.index}`) as File[];
+      const subtaskAssigneeId = subtask.assigneeId ? parseInt(subtask.assigneeId) : null;
+      
+      const newSubtask = await prisma.task.create({
+        data: {
+          TaskName: subtask.taskName,
+          Description: subtask.description || null,
+          Priority: subtask.priority || 'Medium',
+          TeamId: teamId,
+          Status: subtask.status || 'To Do',
+          DueDate: subtask.dueDate ? new Date(subtask.dueDate) : null,
+          CreatedBy: createdBy, // Save user ID
+          IsActive: true,
+          ParentTaskId: task.Id,
+          AssigneeId: subtaskAssigneeId,
+        },
+      });
+
+      // Upload and attach files to subtask
+      if (subtaskFiles.length > 0) {
+        const uploadedSubtaskFiles = await uploadFiles(subtaskFiles, ['images', 'task']);
+        for (const file of uploadedSubtaskFiles) {
+          await prisma.taskDocument.create({
+            data: {
+              TaskId: newSubtask.Id,
+              FileName: file.fileName,
+              CreatedBy: user?.name, // TaskDocument still uses string
+            },
+          });
+        }
+      }
+
+      createdSubtasks.push(newSubtask);
+    }
+
+    // Fetch the complete task with manually added user data
+    const updatedTask = await prisma.task.findUnique({
+      where: { Id: task.Id },
+      include: { 
+        Team: true, 
+        SubTasks: { 
+          include: { 
+            Documents: true,
+            Team: true,
+            Assignee: true
+          } 
+        }, 
+        Documents: true,
+        Assignee: true
+      },
+    });
+
+    // Manually add user data
+    const createdByUser = updatedTask?.CreatedBy 
+      ? await prisma.user.findUnique({
+          where: { Id: updatedTask.CreatedBy },
+          select: { Id: true, Name: true, Email: true }
+        })
+      : null;
+
+    const taskWithUserData = {
+      ...updatedTask,
+      CreatedByUser: createdByUser,
+      ModifiedByUser: null
+    };
+
+    logger.info(`Created task: ${task.TaskName} with ${createdSubtasks.length} subtasks`);
+    return NextResponse.json({ success: true, task: taskWithUserData });
+  } catch (error) {
+    logger.error('Failed to create task', { error });
+    return NextResponse.json({ success: false, error: 'Failed to create task' }, { status: 500 });
+  }
+}
+--------------------------------------------------------------------------------
+ 3. sub task 
+
+// app/api/task/subtask/route.ts
+
+import { NextResponse } from 'next/server';
+import prisma from '@/app/lib/db';
+import { logger } from '@/app/lib/logger';
+import { getUserFromToken } from '@/app/lib/utils/getUserFromToken';
+import { uploadFiles } from '../../../lib/utils/uploadedFiles';
+
+export async function POST(req: Request) {
+  try {
+    const user = await getUserFromToken();
+    const formData = await req.formData();
+
+    const taskName = formData.get('taskName') as string;
+    const description = formData.get('description') as string;
+    const priority = (formData.get('priority') as string) || 'Medium';
+    const teamId = parseInt(formData.get('teamId') as string);
+    const status = (formData.get('status') as string) || 'To Do';
+    const dueDate = formData.get('dueDate') as string;
+    const parentTaskId = parseInt(formData.get('parentTaskId') as string);
+    const assigneeId = formData.get('assigneeId') ? parseInt(formData.get('assigneeId') as string) : null;
+    const files = formData.getAll('files') as File[];
+
+    const createdBy = user?.id; // Changed from user?.name to user?.id
+
+    if (!taskName || isNaN(teamId) || isNaN(parentTaskId)) {
+      return NextResponse.json(
+        { success: false, error: 'Task name, team and parent task are required' }, 
+        { status: 400 }
+      );
+    }
+
+    if (!createdBy) {
+      return NextResponse.json(
+        { success: false, error: 'User authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Verify parent task exists
+    const parentTask = await prisma.task.findUnique({
+      where: { Id: parentTaskId }
+    });
+
+    if (!parentTask) {
+      return NextResponse.json(
+        { success: false, error: 'Parent task not found' },
+        { status: 404 }
+      );
+    }
+
+    // Verify team exists
+    const team = await prisma.team.findUnique({ 
+      where: { Id: teamId, IsActive: true } 
+    });
+    
+    if (!team) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid or inactive team' },
+        { status: 400 }
+      );
+    }
+
+    // Create the subtask
+    const subtask = await prisma.task.create({
+      data: {
+        TaskName: taskName,
+        Description: description || null,
+        Priority: priority,
+        TeamId: teamId,
+        Status: status,
+        DueDate: dueDate ? new Date(dueDate) : null,
+        CreatedBy: createdBy, // Now saving user ID instead of name
+        IsActive: true,
+        ParentTaskId: parentTaskId, // This makes it a subtask
+        AssigneeId: assigneeId,
+      },
+    });
+
+    // Handle file uploads
+    if (files.length > 0) {
+      const uploadedFiles = await uploadFiles(files, ['images', 'task']);
+      for (const file of uploadedFiles) {
+        await prisma.taskDocument.create({
+          data: {
+            TaskId: subtask.Id,
+            FileName: file.fileName,
+            CreatedBy: user?.name, // TaskDocument still uses string for CreatedBy
+          },
+        });
+      }
+    }
+
+    // Fetch the complete subtask with relations
+    const createdSubtask = await prisma.task.findUnique({
+      where: { Id: subtask.Id },
+      include: { 
+        Team: true,
+        Documents: true,
+        Assignee: true
+      },
+    });
+
+    // Manually fetch user data for CreatedBy
+    const createdByUser = createdSubtask?.CreatedBy 
+      ? await prisma.user.findUnique({
+          where: { Id: createdSubtask.CreatedBy },
+          select: { Id: true, Name: true, Email: true }
+        })
+      : null;
+
+    // Add user data to the response
+    const subtaskWithUserData = {
+      ...createdSubtask,
+      CreatedByUser: createdByUser,
+      ModifiedByUser: null // New subtask won't have modified data initially
+    };
+
+    logger.info(`Created subtask: ${subtask.TaskName} under parent task ${parentTaskId}`);
+    
+    return NextResponse.json({ 
+      success: true, 
+      task: subtaskWithUserData 
+    });
+
+  } catch (error) {
+    logger.error('Failed to create subtask', { error });
+    return NextResponse.json(
+      { success: false, error: 'Failed to create subtask' },
+      { status: 500 }
+    );
+  }
+}
+
+// Optional: GET method to fetch subtasks of a parent task
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const parentTaskId = searchParams.get('parentTaskId');
+
+    if (!parentTaskId || isNaN(parseInt(parentTaskId))) {
+      return NextResponse.json(
+        { success: false, error: 'Valid parent task ID is required' },
+        { status: 400 }
+      );
+    }
+
+    const subtasks = await prisma.task.findMany({
+      where: { 
+        ParentTaskId: parseInt(parentTaskId),
+        IsActive: true 
+      },
+      include: {
+        Team: true,
+        Documents: true,
+        Assignee: true
+      },
+      orderBy: { CreatedOn: 'desc' }
+    });
+
+    // Manually fetch user data for each subtask
+    const subtasksWithUserData = await Promise.all(
+      subtasks.map(async (subtask) => {
+        const createdByUser = subtask.CreatedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: subtask.CreatedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        const modifiedByUser = subtask.ModifiedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: subtask.ModifiedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        return {
+          ...subtask,
+          CreatedByUser: createdByUser,
+          ModifiedByUser: modifiedByUser
+        };
+      })
+    );
+
+    logger.info(`Fetched ${subtasks.length} subtasks for parent task ${parentTaskId}`);
+    
+    return NextResponse.json({ 
+      success: true, 
+      tasks: subtasksWithUserData 
+    });
+
+  } catch (error) {
+    logger.error('Failed to fetch subtasks', { error });
+    return NextResponse.json(
+      { success: false, error: 'Failed to fetch subtasks' },
+      { status: 500 }
+    );
+  }
+}
+--------------------------------------------------
+4.task[id].
+
+// /api/task/[id]/route.ts
+import { NextResponse } from 'next/server';
+import prisma from '@/app/lib/db';
+import { logger } from '@/app/lib/logger';
+import { getUserFromToken } from '@/app/lib/utils/getUserFromToken';
+import { uploadFiles } from '@/app/lib/utils/uploadedFiles';
+import path from 'path';
+import fs from 'fs/promises';
+
+interface TaskResponse {
+  success: boolean;
+  task?: any;
+  tasks?: any[];
+  error?: string;
+}
+
+export async function GET(
+  req: Request, 
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params; // ✅ Fixed: await params first
+    const taskId = parseInt(id);
+
+    if (!taskId || isNaN(taskId)) {
+      return NextResponse.json({ success: false, error: 'Task ID is required' }, { status: 400 });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { Id: taskId },
+      include: {
+        Team: true,
+        SubTasks: { 
+          include: { 
+            Documents: true,
+            Team: true,
+            Assignee: true
+          } 
+        },
+        Documents: true,
+        Assignee: true,
+      },
+    });
+
+    if (!task) {
+      return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+    }
+
+    // Manually fetch user data for main task
+    const createdByUser = task.CreatedBy 
+      ? await prisma.user.findUnique({
+          where: { Id: task.CreatedBy },
+          select: { Id: true, Name: true, Email: true }
+        })
+      : null;
+
+    const modifiedByUser = task.ModifiedBy 
+      ? await prisma.user.findUnique({
+          where: { Id: task.ModifiedBy },
+          select: { Id: true, Name: true, Email: true }
+        })
+      : null;
+
+    // Manually fetch user data for subtasks
+    const subTasksWithUserData = await Promise.all(
+      task.SubTasks.map(async (subtask) => {
+        const subtaskCreatedByUser = subtask.CreatedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: subtask.CreatedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        const subtaskModifiedByUser = subtask.ModifiedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: subtask.ModifiedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        return {
+          ...subtask,
+          CreatedByUser: subtaskCreatedByUser,
+          ModifiedByUser: subtaskModifiedByUser
+        };
+      })
+    );
+
+    const taskWithUserData = {
+      ...task,
+      CreatedByUser: createdByUser,
+      ModifiedByUser: modifiedByUser,
+      SubTasks: subTasksWithUserData
+    };
+
+    logger.info(`Fetched task with ID: ${taskId}`);
+    return NextResponse.json({ success: true, task: taskWithUserData });
+  } catch (error) {
+    logger.error('Failed to fetch task', { error });
+    return NextResponse.json({ success: false, error: 'Database error' }, { status: 500 });
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getUserFromToken();
+    const { id } = await params; // ✅ Fixed: await params first
+    const taskId = parseInt(id);
+    
+    if (isNaN(taskId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid task ID' },
+        { status: 400 }
+      );
+    }
+
+    const modifiedBy = user?.id;
+
+    if (!modifiedBy) {
+      return NextResponse.json(
+        { success: false, error: 'User authentication required' },
+        { status: 401 }
+      );
+    }
+
+    const task = await prisma.task.findUnique({ 
+      where: { Id: taskId } 
+    });
+
+    if (!task) {
+      return NextResponse.json(
+        { success: false, error: 'Task not found' },
+        { status: 404 }
+      );
+    }
+
+    const updatedTask = await prisma.task.update({
+      where: { Id: taskId },
+      data: {
+        IsActive: !task.IsActive,
+        ModifiedBy: modifiedBy,
+        ModifiedOn: new Date(),
+      },
+      include: { Team: true },
+    });
+
+    // Manually add user data
+    const modifiedByUser = await prisma.user.findUnique({
+      where: { Id: modifiedBy },
+      select: { Id: true, Name: true, Email: true }
+    });
+
+    const taskWithUserData = {
+      ...updatedTask,
+      ModifiedByUser: modifiedByUser
+    };
+
+    logger.info(
+      `Toggled IsActive for task: ${updatedTask.TaskName} to ${updatedTask.IsActive}`
+    );
+    
+ // inside PATCH handler, just before the try–catch ends
+return NextResponse.json({
+  success: true,
+  task: taskWithUserData,   // single object
+  tasks: [taskWithUserData] // array for older UI code
+});
+
+  } catch (error) {
+    logger.error('Failed to toggle IsActive', { 
+      error: error instanceof Error ? error.message : String(error) 
+    });
+    return NextResponse.json(
+      { success: false, error: 'Failed to toggle IsActive' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(
+  req: Request, 
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getUserFromToken();
+    const { id } = await params; // ✅ Fixed: await params first
+    const taskId = parseInt(id);
+    const formData = await req.formData();
+
+    const taskName = formData.get('taskName') as string;
+    const description = formData.get('description') as string;
+    const priority = formData.get('priority') as string;
+    const teamId = parseInt(formData.get('teamId') as string);
+    const status = formData.get('status') as string;
+    const dueDate = formData.get('dueDate') as string;
+    const assigneeId = formData.get('assigneeId') ? parseInt(formData.get('assigneeId') as string) : null;
+    const files = formData.getAll('files') as File[];
+    const subtasks = formData.get('subtasks')
+      ? JSON.parse(formData.get('subtasks') as string)
+      : [];
+    const deletedSubtaskIds = formData.get('deletedSubtaskIds')
+      ? JSON.parse(formData.get('deletedSubtaskIds') as string)
+      : [];
+    const deletedDocumentIds = formData.get('deletedDocumentIds')
+      ? JSON.parse(formData.get('deletedDocumentIds') as string)
+      : [];
+
+    const modifiedBy = user?.id;
+
+    if (!taskId || !taskName || isNaN(teamId)) {
+      return NextResponse.json({ success: false, error: 'ID, task name, and team are required' }, { status: 400 });
+    }
+
+    if (!modifiedBy) {
+      return NextResponse.json({ success: false, error: 'User authentication required' }, { status: 401 });
+    }
+
+    const team = await prisma.team.findUnique({ where: { Id: teamId, IsActive: true } });
+    if (!team) {
+      return NextResponse.json({ success: false, error: 'Invalid or inactive team' }, { status: 400 });
+    }
+
+    // Delete specified documents
+    for (const docId of deletedDocumentIds) {
+      const document = await prisma.taskDocument.findUnique({ where: { Id: docId } });
+      if (document) {
+        try {
+          const filePath = path.join(process.cwd(), 'public', 'images', 'task', document.FileName);
+          await fs.unlink(filePath);
+        } catch (err) {
+          logger.warn('Failed to delete document file', { error: err });
+        }
+        await prisma.taskDocument.delete({ where: { Id: docId } });
+      }
+    }
+
+    // Delete specified subtasks
+    for (const subtaskId of deletedSubtaskIds) {
+      const subtask = await prisma.task.findUnique({
+        where: { Id: subtaskId },
+        include: { Documents: true },
+      });
+
+      if (subtask) {
+        // Delete subtask documents
+        for (const doc of subtask.Documents) {
+          try {
+            const filePath = path.join(process.cwd(), 'public', 'images', 'task', doc.FileName);
+            await fs.unlink(filePath);
+          } catch (err) {
+            logger.warn('Failed to delete subtask document file', { error: err });
+          }
+        }
+        await prisma.task.delete({ where: { Id: subtaskId } });
+      }
+    }
+
+    // Update main task
+    const task = await prisma.task.update({
+      where: { Id: taskId },
+      data: {
+        TaskName: taskName,
+        Description: description || null,
+        Priority: priority,
+        TeamId: teamId,
+        Status: status,
+        DueDate: dueDate ? new Date(dueDate) : null,
+        ModifiedBy: modifiedBy,
+        ModifiedOn: new Date(),
+        AssigneeId: assigneeId,
+        CompletedDate: status === 'Done' ? new Date() : null,
+      },
+    });
+
+    // Update all subtasks to have the same TeamId as the main task
+    await prisma.task.updateMany({
+      where: { ParentTaskId: taskId },
+      data: {
+        TeamId: teamId,
+        ModifiedBy: modifiedBy,
+        ModifiedOn: new Date(),
+      },
+    });
+
+    // Upload and attach new files to main task
+    if (files.length > 0) {
+      const uploadedFiles = await uploadFiles(files, ['images', 'task']);
+      for (const file of uploadedFiles) {
+        await prisma.taskDocument.create({
+          data: {
+            TaskId: task.Id,
+            FileName: file.fileName,
+            CreatedBy: user?.name,
+          },
+        });
+      }
+    }
+
+    // Process subtasks
+    for (const subtask of subtasks) {
+      const subtaskFiles = formData.getAll(`subtaskFiles_${subtask.index}`) as File[];
+      const subtaskAssigneeId = subtask.assigneeId ? parseInt(subtask.assigneeId) : null;
+
+      if (subtask.id) {
+        // Update existing subtask
+        await prisma.task.update({
+          where: { Id: subtask.id },
+          data: {
+            TaskName: subtask.taskName,
+            Description: subtask.description || null,
+            Priority: subtask.priority || 'Medium',
+            TeamId: teamId,
+            Status: subtask.status || 'To Do',
+            DueDate: subtask.dueDate ? new Date(subtask.dueDate) : null,
+            ModifiedBy: modifiedBy,
+            ModifiedOn: new Date(),
+            AssigneeId: subtaskAssigneeId,
+            CompletedDate: subtask.status === 'Done' ? new Date() : null,
+          },
+        });
+
+        // Upload and attach new files to existing subtask
+        if (subtaskFiles.length > 0) {
+          const uploadedSubtaskFiles = await uploadFiles(subtaskFiles, ['images', 'task']);
+          for (const file of uploadedSubtaskFiles) {
+            await prisma.taskDocument.create({
+              data: {
+                TaskId: subtask.id,
+                FileName: file.fileName,
+                CreatedBy: user?.name,
+              },
+            });
+          }
+        }
+      } else {
+        // Create new subtask
+        const newSubtask = await prisma.task.create({
+          data: {
+            TaskName: subtask.taskName,
+            Description: subtask.description || null,
+            Priority: subtask.priority || 'Medium',
+            TeamId: teamId,
+            Status: subtask.status || 'To Do',
+            DueDate: subtask.dueDate ? new Date(subtask.dueDate) : null,
+            CreatedBy: modifiedBy,
+            IsActive: true,
+            ParentTaskId: taskId,
+            AssigneeId: subtaskAssigneeId,
+          },
+        });
+
+        // Upload and attach files to new subtask
+        if (subtaskFiles.length > 0) {
+          const uploadedSubtaskFiles = await uploadFiles(subtaskFiles, ['images', 'task']);
+          for (const file of uploadedSubtaskFiles) {
+            await prisma.taskDocument.create({
+              data: {
+                TaskId: newSubtask.Id,
+                FileName: file.fileName,
+                CreatedBy: user?.name,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // Fetch the complete updated task with all relations
+    const updatedTask = await prisma.task.findUnique({
+      where: { Id: taskId },
+      include: {
+        Team: true,
+        SubTasks: {
+          include: {
+            Documents: true,
+            Team: true,
+            Assignee: true,
+          },
+        },
+        Documents: true,
+        Assignee: true,
+      },
+    });
+
+    // Manually fetch user data for main task
+    const createdByUser = updatedTask?.CreatedBy 
+      ? await prisma.user.findUnique({
+          where: { Id: updatedTask.CreatedBy },
+          select: { Id: true, Name: true, Email: true }
+        })
+      : null;
+
+    const modifiedByUser = updatedTask?.ModifiedBy 
+      ? await prisma.user.findUnique({
+          where: { Id: updatedTask.ModifiedBy },
+          select: { Id: true, Name: true, Email: true }
+        })
+      : null;
+
+    // Manually fetch user data for subtasks
+    const subTasksWithUserData = await Promise.all(
+      (updatedTask?.SubTasks || []).map(async (subtask) => {
+        const subtaskCreatedByUser = subtask.CreatedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: subtask.CreatedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        const subtaskModifiedByUser = subtask.ModifiedBy 
+          ? await prisma.user.findUnique({
+              where: { Id: subtask.ModifiedBy },
+              select: { Id: true, Name: true, Email: true }
+            })
+          : null;
+
+        return {
+          ...subtask,
+          CreatedByUser: subtaskCreatedByUser,
+          ModifiedByUser: subtaskModifiedByUser
+        };
+      })
+    );
+
+    const taskWithUserData = {
+      ...updatedTask,
+      CreatedByUser: createdByUser,
+      ModifiedByUser: modifiedByUser,
+      SubTasks: subTasksWithUserData
+    };
+
+    logger.info(`Updated task: ${task.TaskName}`);
+    return NextResponse.json({ success: true, task: taskWithUserData });
+  } catch (error) {
+    logger.error('Failed to update task', { error });
+    return NextResponse.json({ success: false, error: 'Failed to update task' }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: Request, 
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params; // ✅ Fixed: await params first
+    const taskId = parseInt(id);
+
+    if (!taskId || isNaN(taskId)) {
+      return NextResponse.json({ success: false, error: 'Task ID is required' }, { status: 400 });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { Id: taskId },
+      include: { 
+        Documents: true, 
+        SubTasks: { include: { Documents: true } },
+      },
+    });
+
+    if (!task) {
+      return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+    }
+
+    // Remove files from disk
+    for (const doc of task.Documents) {
+      try {
+        const filePath = path.join(process.cwd(), 'public', 'images', 'task', doc.FileName);
+        await fs.unlink(filePath);
+      } catch (err) {
+        logger.warn('Failed to delete task document file', { error: err });
+      }
+    }
+
+    for (const subtask of task.SubTasks) {
+      for (const doc of subtask.Documents) {
+        try {
+          const filePath = path.join(process.cwd(), 'public', 'images', 'task', doc.FileName);
+          await fs.unlink(filePath);
+        } catch (err) {
+          logger.warn('Failed to delete subtask document file', { error: err });
+        }
+      }
+    }
+
+    // Transaction: delete messages → subtasks → task
+    await prisma.$transaction(async (tx) => {
+      // Delete messages for subtasks
+      for (const subtask of task.SubTasks) {
+        await tx.message.deleteMany({ where: { TaskId: subtask.Id } });
+        await tx.task.delete({ where: { Id: subtask.Id } });
+      }
+
+      // Delete messages for main task
+      await tx.message.deleteMany({ where: { TaskId: taskId } });
+
+      // Delete main task
+      await tx.task.delete({ where: { Id: taskId } });
+    });
+
+    logger.info(`Deleted task with ID: ${taskId}`);
+    return NextResponse.json({ success: true, message: 'Task deleted successfully' });
+  } catch (error) {
+    logger.error('Failed to delete task', { error });
+    return NextResponse.json({ success: false, error: 'Failed to delete task' }, { status: 500 });
+  }
+}
+--------------------------------------------------------------------------------------------
+5. frontend 
+'use client';
+
+import React, { useEffect, useState, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faEdit,
+  faTrash,
+  faToggleOff,
+  faToggleOn,
+  faPlus,
+  faTimes,
+  faSearch,
+  faFilter,
+  faSave,
+  faSpinner,
+  faUserPlus,
+  faComments,
+  faCheck,
+  faChevronDown,
+  faChevronUp,
+  faUser,
+  faChevronRight,
+  faUserTimes,
+  faLock,
+  faEye, // ✅ Added for review button
+} from '@fortawesome/free-solid-svg-icons';
+import { format } from 'date-fns';
+import axiosInstance from '@/app/lib/axios';
+import { useAuth } from '@/app/hooks/useAuth'; // ✅ Added for current user
+import AddEditTaskModal from './AddEditTaskModal';
+import AddSubtaskModal from './AddSubtaskModal';
+import ChatPanel from './ChatPanel';
+import { TaskReviewModal, TaskReassignmentModal } from './TaskReviewAndReassign'; // ✅ Added
+
+// All existing interfaces remain same...
+interface Team {
+  Id: number;
+  TeamName: string;
+  Description?: string;
+  IsActive: boolean;
+  CreatedOn: string;
+  CreatedBy?: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+}
+
+interface User {
+  Id: number;
+  Name: string;
+  Email: string;
+  RoleId?: number;
+  TeamId: number;
+  IsActive: boolean;
+  Team?: Team;
+}
+
+interface Task {
+  Id: number;
+  TaskName: string;
+  Description?: string;
+  Priority: string;
+  TeamId: number;
+  Status: string;
+  DueDate?: string;
+  CreatedBy?: string;
+  CreatedOn: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+  CompletedDate?: string;
+  IsActive: boolean;
+  ParentTaskId?: number;
+  AssigneeId?: number;
+  Team: Team;
+  SubTasks?: Task[];
+  Assignee?: User;
+}
+
+interface TaskAssignment {
+  Id: number;
+  TaskId: number;
+  UserId: number;
+  Progress: number;
+  Remarks?: string;
+  ReferredTo?: number; // ✅ Added for forwarded tasks
+  AssignedDate: string;
+  CreatedBy: string;
+  User?: User;
+  Task?: Task;
+}
+
+interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+  tasks?: Task[];
+  users?: User[];
+  teams?: Team[];
+  assignments?: TaskAssignment[];
+  assignment?: TaskAssignment;
+  counts?: Record<number, number>;
+}
+
+interface ApiError {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+}
+
+// All existing modals remain same (DeleteAssignmentModal, AssignmentModal, EditableRemarks)...
+const DeleteAssignmentModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  assignment: TaskAssignment | null;
+  loading?: boolean;
+}> = ({ isOpen, onClose, onConfirm, assignment, loading = false }) => {
+  if (!isOpen || !assignment) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-sm">
+        <div className="flex justify-between items-center p-2 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">Remove Assignment</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <FontAwesomeIcon icon={faTimes} className="text-sm" />
+          </button>
+        </div>
+        <div className="p-2">
+          <div className="bg-red-50 p-2 rounded mb-2 border border-red-200">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center">
+                <FontAwesomeIcon icon={faTrash} className="text-red-600 text-xs" />
+              </div>
+              <div>
+                <h4 className="font-medium text-sm text-gray-900">Remove user from this task?</h4>
+                <p className="text-xs text-red-600">This action cannot be undone.</p>
+              </div>
+            </div>
+            <div className="text-xs text-gray-700 space-y-1">
+              <p><strong>Task:</strong> {assignment.Task?.TaskName ?? 'Unknown'}</p>
+              <p><strong>User:</strong> {assignment.User?.Name ?? 'Unknown'}</p>
+              {assignment.Remarks && <p><strong>Remarks:</strong> {assignment.Remarks}</p>}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-gray-600 bg-gray-100 rounded text-xs hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 disabled:bg-gray-300 flex items-center gap-1"
+            >
+              {loading ? (
+                <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
+              ) : (
+                <FontAwesomeIcon icon={faTrash} className="text-xs" />
+              )}
+              {loading ? 'Removing...' : 'Remove'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AssignmentModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  task: Task | null;
+  user: User | null;
+  isReassignment?: boolean;
+  currentAssignee?: User | null;
+}> = ({ isOpen, onClose, onConfirm, task, user, isReassignment = false, currentAssignee }) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    setLoading(true);
+    await onConfirm();
+    setLoading(false);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-sm">
+        <div className="flex justify-between items-center p-2 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">
+            {isReassignment ? 'Change Assignee' : 'Confirm Assignment'}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <FontAwesomeIcon icon={faTimes} className="text-sm" />
+          </button>
+        </div>
+        <div className="p-2">
+          <div className="bg-blue-50 p-2 rounded mb-2">
+            <h4 className="font-medium text-sm text-gray-900">
+              {isReassignment ? 'Change assignee for this task?' : 'Assign this task?'}
+            </h4>
+            <div className="text-xs text-gray-600 space-y-1">
+              <p><strong>Task:</strong> {task?.TaskName ?? 'Unknown'}</p>
+              {isReassignment && currentAssignee && (
+                <p><strong>Current:</strong> {currentAssignee.Name}</p>
+              )}
+              <p><strong>New Assignee:</strong> {user?.Name ?? 'Unknown'}</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-gray-600 bg-gray-100 rounded text-xs hover:bg-gray-200"
+            >
+              No
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={loading}
+              className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 disabled:bg-gray-300"
+            >
+              {loading ? <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-1 text-xs" /> : null}
+              {isReassignment ? 'Change' : 'Yes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const EditableRemarks: React.FC<{
+  value: string;
+  onSave: (value: string) => Promise<void>;
+  taskId: number;
+  assignmentId: number;
+}> = ({ value, onSave, taskId, assignmentId }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (editValue === value) {
+      setIsEditing(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSave(editValue);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Failed to save remarks:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditValue(value);
+    setIsEditing(false);
+  };
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center p-3 z-50">
+        <input
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          className="flex-1 text-xs border border-gray-300 rounded px-1 py-0.5"
+          autoFocus
+          onKeyPress={(e) => e.key === 'Enter' && handleSave()}
+          onKeyDown={(e) => e.key === 'Escape' && handleCancel()}
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="text-green-600 hover:text-green-800 disabled:opacity-50 p-0.5"
+          title="Save"
+        >
+          {saving ? (
+            <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
+          ) : (
+            <FontAwesomeIcon icon={faCheck} className="text-xs" />
+          )}
+        </button>
+        <button
+          onClick={handleCancel}
+          className="text-red-600 hover:text-red-800 p-0.5"
+          title="Cancel"
+        >
+          <FontAwesomeIcon icon={faTimes} className="text-xs" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="text-xs text-gray-600 cursor-pointer hover:bg-gray-100 rounded px-1 py-0.5 truncate max-w-24"
+      onClick={() => setIsEditing(true)}
+      title={value || 'Click to add remarks'}
+    >
+      {value || 'Add remarks'}
+    </div>
+  );
+};
+
+// Main Component with Task Review functionality
+export default function TaskManagement() {
+  const { user } = useAuth(); // ✅ Get current logged user
+  
+  // All existing state variables...
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [addEditModalOpen, setAddEditModalOpen] = useState<boolean>(false);
+  const [addSubtaskModalOpen, setAddSubtaskModalOpen] = useState<boolean>(false);
+  const [editingTask, setEditingTask] = useState<Task | null | undefined>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+
+  // ✅ NEW: Task Review Modal States
+  const [taskReviewModal, setTaskReviewModal] = useState<{
+    isOpen: boolean;
+    taskName: string;
+    taskId: number | null;
+  }>({
+    isOpen: false,
+    taskName: '',
+    taskId: null
+  });
+
+  const [reassignmentModal, setReassignmentModal] = useState<{
+    isOpen: boolean;
+    task: Task | null;
+  }>({
+    isOpen: false,
+    task: null
+  });
+
+  // All existing modal states...
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    action: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    action: () => {},
+  });
+  
+  const [chatPanel, setChatPanel] = useState<{ isOpen: boolean; taskId: number | null }>({
+    isOpen: false,
+    taskId: null,
+  });
+  
+  const [assigneeDropdown, setAssigneeDropdown] = useState<{
+    isOpen: boolean;
+    taskId: number | null;
+  }>({ isOpen: false, taskId: null });
+  
+  const [assignmentModal, setAssignmentModal] = useState<{
+    isOpen: boolean;
+    task: Task | null;
+    user: User | null;
+    isReassignment: boolean;
+    currentAssignee: User | null;
+  }>({
+    isOpen: false,
+    task: null,
+    user: null,
+    isReassignment: false,
+    currentAssignee: null,
+  });
+  
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    assignment: TaskAssignment | null;
+  }>({
+    isOpen: false,
+    assignment: null,
+  });
+  
+  const [deletingAssignment, setDeletingAssignment] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState<Set<number>>(new Set());
+
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [priorityFilter, setPriorityFilter] = useState<string>('');
+  const [teamFilter, setTeamFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('');
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
+
+  const priorityOptions = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
+  const statusOptions = ['To Do', 'In Progress', 'Completed', 'Forwarded', 'Closed', 'Not Started', 'Reassigned']; // ✅ Added Reassigned
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // ✅ NEW: Review Button Logic
+  const shouldShowReviewButton = (task: Task): boolean => {
+    const isForwarded = task.Status === 'Forwarded';
+    // Find assignment to check ReferredTo
+    const assignment = assignments.find(a => a.TaskId === task.Id);
+    const isReferredToCurrentUser = assignment?.ReferredTo === user?.id;
+    const isNotEmployee = user?.RoleId !== 4; // Assuming 4 is Employee role ID
+    
+    console.log('🔍 Review Button Debug:', {
+      taskId: task.Id,
+      taskName: task.TaskName,
+      taskStatus: task.Status,
+      isForwarded,
+      referredTo: assignment?.ReferredTo,
+      currentUserId: user?.id,
+      isReferredToCurrentUser,
+      userRole: user?.RoleId,
+      isNotEmployee,
+      shouldShowButton: isForwarded && isReferredToCurrentUser && isNotEmployee
+    });
+
+    return isForwarded && isReferredToCurrentUser && isNotEmployee;
+  };
+
+  // ✅ NEW: Task Review Handler Functions
+  const handleTaskReview = (taskId: number, taskName: string) => {
+    console.log('🔄 Opening task review modal:', { taskId, taskName });
+    setTaskReviewModal({
+      isOpen: true,
+      taskName,
+      taskId
+    });
+  };
+
+  const handleCompleteTask = async () => {
+    if (!taskReviewModal.taskId) return;
+
+    try {
+      console.log('✅ Completing task:', taskReviewModal.taskId);
+      
+      const response = await axiosInstance.put<ApiResponse>('/api/task-assignment', {
+        TaskId: taskReviewModal.taskId,
+        Status: 'Closed'
+      });
+
+      if (response.data?.success) {
+        setSuccess('Task completed successfully!');
+        setTaskReviewModal({ isOpen: false, taskName: '', taskId: null });
+        // Refresh tasks
+        window.location.reload();
+      } else {
+        setError('Failed to complete task');
+      }
+    } catch (error) {
+      setError('Failed to complete task');
+      console.error('Complete task error:', error);
+    }
+  };
+
+  const handleOpenReassignment = () => {
+    const task = tasks.find(t => t.Id === taskReviewModal.taskId);
+    if (task) {
+      console.log('🔄 Opening reassignment modal for task:', task.TaskName);
+      setReassignmentModal({
+        isOpen: true,
+        task: task
+      });
+      setTaskReviewModal({ isOpen: false, taskName: '', taskId: null });
+    }
+  };
+
+  const handleTaskReassignment = async (reassignData: any) => {
+    if (!reassignmentModal.task) return;
+
+    try {
+      console.log('🔄 Reassigning task:', reassignmentModal.task.Id, reassignData);
+      
+      // Step 1: Update main task status to "Reassigned"
+      await axiosInstance.put<ApiResponse>('/api/task-assignment', {
+        TaskId: reassignmentModal.task.Id,
+        Status: 'Reassigned'
+      });
+
+      // Step 2: Create new assignment
+      const formData = new FormData();
+      formData.append('TaskId', reassignmentModal.task.Id.toString());
+      formData.append('UserId', reassignData.userId);
+      formData.append('Progress', '0');
+      formData.append('AssignedDate', new Date().toISOString());
+
+      const response = await axiosInstance.post<ApiResponse>('/api/task-assignment', formData);
+
+      if (response.data?.success) {
+        // Step 3: Update task details if provided
+        if (reassignData.taskName || reassignData.description || reassignData.dueDate) {
+          await axiosInstance.put<ApiResponse>('/api/task', {
+            Id: reassignmentModal.task.Id,
+            TaskName: reassignData.taskName || reassignmentModal.task.TaskName,
+            Description: reassignData.description || reassignmentModal.task.Description,
+            DueDate: reassignData.dueDate || reassignmentModal.task.DueDate,
+            Status: 'Not Started'
+          });
+        }
+
+        setSuccess('Task reassigned successfully!');
+        setReassignmentModal({ isOpen: false, task: null });
+        // Refresh data
+        window.location.reload();
+      } else {
+        setError('Failed to reassign task');
+      }
+    } catch (error) {
+      setError('Failed to reassign task');
+      console.error('Reassign task error:', error);
+    }
+  };
+
+  // All existing useEffect and handler functions remain same...
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setAssigneeDropdown({ isOpen: false, taskId: null });
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (error || success) {
+      const timer = setTimeout(() => {
+        setError('');
+        setSuccess('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, success]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [tasksRes, teamsRes, usersRes, assignmentsRes] = await Promise.all([
+          axiosInstance.get<ApiResponse>('/api/task'),
+          axiosInstance.get<ApiResponse>('/api/team'),
+          axiosInstance.get<ApiResponse>('/api/user'),
+          axiosInstance.get<ApiResponse>('/api/task-assignment'),
+        ]);
+
+        if (tasksRes.data?.success) {
+          const tasksWithTeam = (tasksRes.data.tasks || []).map(task => ({
+            ...task,
+            Team: task.Team || teamsRes.data?.teams?.find(t => t.Id === task.TeamId) || {
+              Id: task.TeamId,
+              TeamName: 'Unknown',
+              IsActive: true,
+              CreatedOn: new Date().toISOString(),
+            },
+          }));
+          setTasks(tasksWithTeam);
+        } else {
+          setError(tasksRes.data?.error || 'Failed to fetch tasks');
+        }
+
+        if (teamsRes.data?.success) setTeams(teamsRes.data.teams?.filter(team => team.IsActive) || []);
+        else setError(teamsRes.data?.error || 'Failed to fetch teams');
+
+        if (usersRes.data?.success) setUsers(usersRes.data.users?.filter(user => user.IsActive) || []);
+        else setError(usersRes.data?.error || 'Failed to fetch users');
+
+        if (assignmentsRes.data?.success) setAssignments(assignmentsRes.data.assignments || []);
+        else setError(assignmentsRes.data?.error || 'Failed to fetch assignments');
+      } catch (err) {
+        const apiError = err as ApiError;
+        setError(apiError.response?.data?.error || apiError.message || 'Failed to fetch data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // All existing handler functions remain same...
+  const handleAddTask = () => {
+    setEditingTask(null);
+    setAddEditModalOpen(true);
+  };
+
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setAddEditModalOpen(true);
+  };
+
+  const handleTaskSaved = (savedTask: Task, isEdit: boolean) => {
+    setTasks(prevTasks =>
+      isEdit
+        ? prevTasks.map(t => (t.Id === savedTask.Id ? savedTask : t))
+        : [savedTask, ...prevTasks]
+    );
+    setSuccess(isEdit ? 'Task updated successfully!' : 'Task created successfully!');
+    setAddEditModalOpen(false);
+    setEditingTask(null);
+  };
+
+  const handleSubtaskCreated = (subtask: Task) => {
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        task.Id === selectedTaskId
+          ? { ...task, SubTasks: [...(task.SubTasks || []), subtask] }
+          : task
+      )
+    );
+    setSuccess('Subtask created successfully!');
+    setAddSubtaskModalOpen(false);
+    setSelectedTaskId(null);
+  };
+
+  const handleDeleteTask = (taskId: number, taskName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to delete "${taskName}"? This action cannot be undone.`,
+      action: async () => {
+        try {
+          const response = await axiosInstance.delete<ApiResponse>(`/api/task/${taskId}`);
+          if (response.data?.success) {
+            setTasks(prev => prev.filter(task => task.Id !== taskId));
+            setSuccess('Task deleted successfully');
+          } else {
+            setError(response.data?.error || 'Failed to delete task');
+          }
+        } catch (err) {
+          const apiError = err as ApiError;
+          setError(apiError.response?.data?.error || 'Failed to delete task');
+        }
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleToggleTaskStatus = (id: number, currentStatus: boolean, taskName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: `${currentStatus ? 'Deactivate' : 'Activate'} Task`,
+      message: `Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} "${taskName}"?`,
+      action: async () => {
+        try {
+          // TaskManagement -> handleToggleTaskStatus
+const response = await axiosInstance.patch<ApiResponse>(`/api/task/${id}`);
+
+if (response.data?.success && response.data.task) {   // <-- यहाँ 'task'
+  setTasks(prev =>
+    prev.map(t => (t.Id === id ? response.data.task! : t))
+  );
+  setSuccess(`Task ${currentStatus ? 'deactivated' : 'activated'} successfully`);
+} else {
+  setError(response.data?.error || 'Failed to toggle task status');
+}
+
+        } catch (err) {
+          const apiError = err as ApiError;
+          setError(apiError.response?.data?.error || 'Failed to toggle task status');
+        }
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleAssignUser = async () => {
+    if (!assignmentModal.task || !assignmentModal.user) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('TaskId', assignmentModal.task.Id.toString());
+      formData.append('UserId', assignmentModal.user.Id.toString());
+      formData.append('Progress', '0');
+      formData.append('AssignedDate', new Date().toISOString());
+
+      const response = await axiosInstance.post<ApiResponse>('/api/task-assignment', formData);
+
+      if (response.data?.success) {
+        setSuccess(response.data.message || 'Task assigned successfully!');
+        setAssignments(prev => [...prev, response.data.assignment!]);
+        setAssigneeDropdown({ isOpen: false, taskId: null });
+      } else {
+        setError(response.data?.error || 'Failed to assign task');
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.response?.data?.error || 'Failed to assign task');
+    }
+  };
+
+  const handleDeleteAssignment = async () => {
+    if (!deleteModal.assignment) return;
+
+    setDeletingAssignment(true);
+    try {
+      const response = await axiosInstance.delete<ApiResponse>(
+        `/api/task-assignment?id=${deleteModal.assignment.Id}`
+      );
+
+      if (response.data?.success) {
+        setSuccess(response.data.message || 'Assignment removed successfully!');
+        setAssignments(prev => prev.filter(assignment => assignment.Id !== deleteModal.assignment!.Id));
+        setDeleteModal({ isOpen: false, assignment: null });
+      } else {
+        setError(response.data?.error || 'Failed to remove assignment');
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.response?.data?.error || 'Failed to remove assignment');
+    } finally {
+      setDeletingAssignment(false);
+    }
+  };
+
+  const updateRemarks = async (assignmentId: number, remarks: string) => {
+    try {
+      const requestBody = {
+        Id: assignmentId,
+        Remarks: remarks,
+      };
+
+      const response = await axiosInstance.put<ApiResponse>('/api/task-assignment', requestBody, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.data?.success) {
+        setSuccess('Remarks updated!');
+        setAssignments(prev =>
+          prev.map(a => (a.Id === assignmentId ? { ...a, Remarks: remarks } : a))
+        );
+      } else {
+        throw new Error(response.data?.error || 'Failed to update remarks');
+      }
+    } catch (error) {
+      setError('Failed to update remarks');
+      throw error;
+    }
+  };
+
+  // All utility functions remain same...
+  const getDueText = (dueDateStr: string) => {
+    const dueDate = new Date(dueDateStr);
+    const today = new Date();
+    dueDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+
+    const diffInMs = dueDate.getTime() - today.getTime();
+    const diffInDays = Math.round(diffInMs / (1000 * 60 * 60 * 24));
+
+    if (diffInDays === 0) return 'Due today';
+    if (diffInDays > 0) return `Due in ${diffInDays} day${diffInDays > 1 ? 's' : ''}`;
+    return `Overdue by ${Math.abs(diffInDays)} day${Math.abs(diffInDays) > 1 ? 's' : ''}`;
+  };
+
+  const getTeamUsers = (teamId: number, taskId: number, currentUserRoleId: number): User[] => {
+    const assignedUserIds = new Set(assignments.filter(a => a.TaskId === taskId).map(a => a.UserId));
+    let filteredUsers = users.filter(user => 
+      user.TeamId === teamId && 
+      user.IsActive && 
+      !assignedUserIds.has(user.Id)
+    );
+
+    // Apply role-based filtering
+    switch (currentUserRoleId) {
+      case 1: // Admin
+        filteredUsers = filteredUsers.filter(user => user.RoleId !== 1); // Exclude other Admins
+        break;
+      case 2: // SubAdmin
+        filteredUsers = filteredUsers.filter(user => user.RoleId === 3 || user.RoleId === 4); // TeamLead or Employee
+        break;
+      case 3: // TeamLead
+        filteredUsers = filteredUsers.filter(user => user.RoleId === 4); // Employee only
+        break;
+      case 4: // Employee
+        filteredUsers = []; // Employee cannot assign
+        break;
+      default:
+        break;
+    }
+
+    return filteredUsers;
+  };
+
+  const getAssignedUsers = (taskId: number): User[] => {
+    const taskAssignments = assignments.filter(assignment => assignment.TaskId === taskId);
+    return taskAssignments.map(assignment => assignment.User).filter((user): user is User => !!user);
+  };
+
+  const getAssignment = (taskId: number): TaskAssignment | null => {
+    return assignments.find(assignment => assignment.TaskId === taskId) || null;
+  };
+
+  const getTotalAssignedUsersCount = (task: Task): number => {
+    let count = 0;
+    const mainTaskAssignments = assignments.filter(assignment => assignment.TaskId === task.Id);
+    count += mainTaskAssignments.length;
+    if (task.SubTasks && task.SubTasks.length > 0) {
+      task.SubTasks.forEach(subTask => {
+        count += getTotalAssignedUsersCount(subTask);
+      });
+    }
+    return count;
+  };
+
+  const toggleTaskExpansion = (taskId: number) => {
+    setExpandedTasks(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(taskId)) newSet.delete(taskId);
+      else newSet.add(taskId);
+      return newSet;
+    });
+  };
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setPriorityFilter('');
+    setTeamFilter('');
+    setStatusFilter('');
+    setAssigneeFilter('');
+    setDateRange({ start: '', end: '' });
+  };
+
+  const filteredTasks = tasks.filter(task => {
+    const matchesSearch =
+      !searchTerm ||
+      task.TaskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.Description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (task.SubTasks || []).some(
+        sub =>
+          sub.TaskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          sub.Description?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+
+    const matchesPriority = !priorityFilter || task.Priority === priorityFilter;
+    const matchesTeam = !teamFilter || task.TeamId.toString() === teamFilter;
+    const matchesStatus = !statusFilter || task.Status === statusFilter;
+    const matchesAssignee = !assigneeFilter || task.AssigneeId?.toString() === assigneeFilter;
+    const matchesDateRange =
+      !dateRange.start ||
+      !dateRange.end ||
+      (new Date(task.CreatedOn) >= new Date(dateRange.start) &&
+        new Date(task.CreatedOn) <= new Date(dateRange.end));
+
+    return matchesSearch && matchesPriority && matchesTeam && matchesStatus && matchesAssignee && matchesDateRange;
+  });
+
+  // ✅ UPDATED: renderTaskRow function with Review Button
+  const renderTaskRow = (task: Task, isSubTask = false, level = 0, parentTeamUsers?: User[]): React.ReactNode => {
+    const indent = level * 16;
+    const effectiveTeamUsers = isSubTask && parentTeamUsers ? parentTeamUsers : getTeamUsers(task.TeamId, task.Id, user?.RoleId || 0);
+    const assignedUsers = getAssignedUsers(task.Id);
+    const assignment = getAssignment(task.Id);
+    const isAssigned = assignedUsers.length > 0;
+    const hasSubTasks = task.SubTasks && task.SubTasks.length > 0;
+    const isExpanded = expandedTasks.has(task.Id);
+    const totalAssignedCount = getTotalAssignedUsersCount(task);
+
+    return (
+      <React.Fragment key={`task-fragment-${task.Id}`}>
+        <tr
+          key={`task-${task.Id}`}
+          className={`
+            hover:bg-gray-50 transition-colors duration-150
+            ${!task.IsActive ? 'opacity-60 bg-gray-25' : ''}
+            ${isSubTask ? 'bg-blue-50' : ''}
+          `}
+        >
+          {/* All existing columns remain same until Status column... */}
+          <td className="px-2 py-1 text-xs" style={{ paddingLeft: `${indent + 8}px` }}>
+            <div className="flex items-center gap-2">
+              {isSubTask && <span className="text-blue-500 text-xs">↳</span>}
+              <div className="flex-1 min-w-0">
+                <div
+                  className={`${
+                    isSubTask ? 'text-xs font-medium text-gray-600' : 'text-xs font-semibold text-gray-600'
+                  } ${!task.IsActive ? 'line-through text-gray-500' : ''}`}
+                >
+                  {task.TaskName}
+                </div>
+                {task.Description && (
+                  <p className="text-xs text-gray-600 truncate max-w-[200px]">{task.Description}</p>
+                )}
+              </div>
+              {!isSubTask && hasSubTasks && (
+                <button
+                  onClick={() => toggleTaskExpansion(task.Id)}
+                  className="px-1 py-0.5 rounded bg-gray-100 hover:bg-gray-200 transition"
+                  title={isExpanded ? 'Hide Subtask' : 'Show Subtask'}
+                >
+                  <FontAwesomeIcon
+                    icon={isExpanded ? faChevronDown : faChevronRight}
+                    className="text-xs text-gray-600"
+                  />
+                </button>
+              )}
+              {!isSubTask && totalAssignedCount > 0 && (
+                <div className="flex items-center px-1 py-0.5 rounded bg-gray-100 text-xs text-gray-700">
+                  <FontAwesomeIcon icon={faUser} className="mr-1 text-xs" />
+                  {totalAssignedCount}
+                </div>
+              )}
+              <button
+                onClick={() => setChatPanel({ isOpen: true, taskId: task.Id })}
+                className="p-1 rounded bg-gray-100 text-blue-600 hover:text-blue-700 hover:bg-blue-50 transition"
+                title="Chat"
+              >
+                <FontAwesomeIcon icon={faComments} className="text-xs" />
+              </button>
+            </div>
+          </td>
+
+          {/* All other existing columns remain same until Status column... */}
+          <td className="px-2 py-1">
+            <div className="relative" ref={assigneeDropdown.taskId === task.Id ? dropdownRef : null}>
+              <button
+                onClick={() =>
+                  setAssigneeDropdown(
+                    assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen
+                      ? { isOpen: false, taskId: null }
+                      : { isOpen: true, taskId: task.Id }
+                  )
+                }
+                className={`flex items-center gap-1 px-1 py-0.5 rounded transition-colors ${
+                  isAssigned ? 'bg-green-100 hover:bg-green-200' : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                {isAssigned ? (
+                  <>
+                    <div className="w-4 h-4 bg-green-600 rounded-full flex items-center justify-center">
+                      <span className="text-[10px] font-medium text-white">
+                        {assignedUsers[0]?.Name
+                          ? assignedUsers[0].Name.charAt(0).toUpperCase()
+                          : '-'}
+                      </span>
+
+                    </div>
+                    <div className="text-left">
+                      <div className="text-xs font-medium text-green-800 truncate max-w-16">
+                        {assignedUsers.length === 1 ? assignedUsers[0].Name : `${assignedUsers.length} users`}
+                      </div>
+                    </div>
+                    <FontAwesomeIcon
+                      icon={assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen ? faChevronUp : faChevronDown}
+                      className="text-xs text-green-600"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <FontAwesomeIcon icon={faUserPlus} className="text-xs" />
+                    <span className="text-xs">Assign</span>
+                    <FontAwesomeIcon
+                      icon={assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen ? faChevronUp : faChevronDown}
+                      className="text-xs"
+                    />
+                  </>
+                )}
+              </button>
+              
+              {assigneeDropdown.isOpen && assigneeDropdown.taskId === task.Id && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-40">
+                  {isSubTask ? (
+                    <div className="p-1">
+                      {assignedUsers.length > 0 && (
+                        <div>
+                          <div className="text-xs font-medium text-gray-500 mb-1 px-1">Assigned Users</div>
+                          {assignedUsers.map(user => {
+                            const specAssign = assignments.find(a => a.TaskId === task.Id && a.UserId === user.Id);
+                            return (
+                              <div key={user.Id} className="flex items-center justify-between hover:bg-gray-100 rounded p-1">
+                                <div className="flex items-center gap-1">
+                                  <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center">
+                                    <span className="text-[10px] font-medium text-green-800">{user.Name.charAt(0).toUpperCase()}</span>
+                                  </div>
+                                  <div className="font-medium text-xs text-green-800">{user.Name}</div>
+                                  <div className="text-xs text-gray-500">{user.RoleId === 1 ? 'Admin' : user.RoleId === 2 ? 'SubAdmin' : user.RoleId === 3 ? 'TeamLead' : 'Employee'}</div>
+                                </div>
+                                {specAssign && (
+                                  <button
+                                    onClick={() => {
+                                      setDeleteModal({ isOpen: true, assignment: specAssign });
+                                      setAssigneeDropdown({ isOpen: false, taskId: null });
+                                    }}
+                                    className="p-0.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                    title="Remove Assignment"
+                                  >
+                                    <FontAwesomeIcon icon={faUserTimes} className="text-xs" />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                          <div className="border-b my-1"></div>
+                        </div>
+                      )}
+                      <div className="text-xs font-medium text-gray-500 mb-1 px-1">Available Users</div>
+                      {effectiveTeamUsers.map(user => (
+                        <div key={user.Id} className="flex items-center justify-between hover:bg-gray-100 rounded p-1">
+                          <button
+                            onClick={() => {
+                              setAssignmentModal({
+                                isOpen: true,
+                                task,
+                                user,
+                                isReassignment: isAssigned,
+                                currentAssignee: assignedUsers[0] || null,
+                              });
+                              setAssigneeDropdown({ isOpen: false, taskId: null });
+                            }}
+                            className="flex items-center gap-1 px-1 py-0.5 text-left flex-1"
+                          >
+                            <div className="w-4 h-4 bg-blue-100 rounded-full flex items-center justify-center">
+                              <span className="text-[10px] font-medium text-blue-800">{user.Name.charAt(0).toUpperCase()}</span>
+                            </div>
+                            <div>
+                              <div className="font-medium text-xs text-gray-900">{user.Name}</div>
+                              <div className="text-xs text-gray-500">{user.RoleId === 1 ? 'Admin' : user.RoleId === 2 ? 'SubAdmin' : user.RoleId === 3 ? 'TeamLead' : 'Employee'}</div>
+                              
+                            </div>
+                          </button>
+                        </div>
+                      ))}
+                      {effectiveTeamUsers.length === 0 && (
+                        <div className="px-1 py-0.5 text-xs text-gray-500">No available users</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-1">
+                      <div className="text-xs font-medium text-gray-500 mb-1">Select User</div>
+                      {effectiveTeamUsers.length > 0 ? (
+                        effectiveTeamUsers.map(user => {
+                          const isCurrentlyAssigned = assignedUsers.some(assignedUser => assignedUser.Id === user.Id);
+                          const specAssign = assignments.find(a => a.TaskId === task.Id && a.UserId === user.Id);
+                          return (
+                            <div key={`user-${user.Id}-task-${task.Id}`} className="flex items-center justify-between hover:bg-gray-100 rounded p-1">
+                              <button
+                                onClick={() => {
+                                  if (!isCurrentlyAssigned) {
+                                    setAssignmentModal({
+                                      isOpen: true,
+                                      task,
+                                      user,
+                                      isReassignment: isAssigned,
+                                      currentAssignee: assignedUsers[0] || null,
+                                    });
+                                  }
+                                  setAssigneeDropdown({ isOpen: false, taskId: null });
+                                }}
+                                className={`flex items-center gap-1 px-1 py-0.5 text-left flex-1 ${
+                                  isCurrentlyAssigned ? 'cursor-default' : 'hover:bg-gray-200 rounded'
+                                }`}
+                                disabled={isCurrentlyAssigned}
+                              >
+                                <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                                  isCurrentlyAssigned ? 'bg-green-100' : 'bg-blue-100'
+                                }`}>
+                                  <span className={`text-[10px] font-medium ${
+                                    isCurrentlyAssigned ? 'text-green-800' : 'text-blue-800'
+                                  }`}>
+                                    {user.Name.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <div className={`font-medium text-xs ${
+                                    isCurrentlyAssigned ? 'text-green-800' : 'text-gray-900'
+                                  }`}>
+                                    {user.Name} {isCurrentlyAssigned && '✓'}
+                                  </div>
+                                  <div className="text-xs text-gray-500">{user.RoleId === 1 ? 'Admin' : user.RoleId === 2 ? 'SubAdmin' : user.RoleId === 3 ? 'TeamLead' : 'Employee'}</div>
+                                </div>
+                              </button>
+                              {isCurrentlyAssigned && specAssign && (
+                                <button
+                                  onClick={() => {
+                                    setDeleteModal({ isOpen: true, assignment: specAssign });
+                                    setAssigneeDropdown({ isOpen: false, taskId: null });
+                                  }}
+                                  className="p-0.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                  title="Remove Assignment"
+                                >
+                                  <FontAwesomeIcon icon={faUserTimes} className="text-xs" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="px-1 py-0.5 text-xs text-gray-500">No users available</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </td>
+
+          <td className="px-2 py-1">
+            {assignment && (
+              <EditableRemarks
+                value={assignment.Remarks || ''}
+                onSave={(value) => updateRemarks(assignment.Id, value)}
+                taskId={task.Id}
+                assignmentId={assignment.Id}
+              />
+            )}
+          </td>
+
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.DueDate
+              ? new Date(task.DueDate).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                })
+              : '-'}
+          </td>
+
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.DueDate ? getDueText(task.DueDate) : '-'}
+          </td>
+
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.ModifiedOn ? (
+              <span
+                className="cursor-pointer"
+                title={`Updated on: ${format(new Date(task.ModifiedOn), 'dd MMM yyyy, hh:mm a')}`}
+              >
+                {format(new Date(task.ModifiedOn), 'dd/MM/yyyy, hh:mm a')}
+              </span>
+            ) : (
+              'Not updated yet'
+            )}
+          </td>
+
+          {/* ✅ UPDATED: Status Column with Review Button */}
+          <td className="px-2 py-1">
+            <div className="flex items-center gap-2">
+              <span
+                className={`
+                  inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium
+                  ${task.Status === 'Completed' ? 'bg-green-100 text-green-800' :
+                    task.Status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                    task.Status === 'To Do' || task.Status === 'Not Started' ? 'bg-gray-100 text-gray-800' :
+                    task.Status === 'Forwarded' ? 'bg-purple-100 text-purple-800' :
+                    task.Status === 'Closed' ? 'bg-red-100 text-red-800' :
+                    task.Status === 'Reassigned' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}
+                `}
+              >
+                {task.Status}
+              </span>
+              
+              {/* ✅ Task Review Button */}
+              {shouldShowReviewButton(task) && (
+                <button
+                  onClick={() => handleTaskReview(task.Id, task.TaskName)}
+                  className="p-1 rounded bg-purple-100 text-purple-600 hover:text-purple-700 hover:bg-purple-200 transition-colors"
+                  title="Review Forwarded Task"
+                >
+                  <FontAwesomeIcon icon={faEye} className="text-xs" />
+                </button>
+              )}
+            </div>
+          </td>
+
+          {/* All other existing columns remain same... */}
+          <td className="px-2 py-1">
+            <span
+              className={`
+                inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium
+                ${task.Priority === 'Critical' ? 'bg-red-100 text-red-800' :
+                  task.Priority === 'Urgent' ? 'bg-orange-100 text-orange-800' :
+                  task.Priority === 'High' ? 'bg-red-100 text-red-800' :
+                  task.Priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-green-100 text-green-800'}
+              `}
+            >
+              {task.Priority}
+            </span>
+          </td>
+
+          <td className="px-2 py-1">
+            <div className="flex gap-1">
+              <button
+                className="p-1 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50 rounded transition-colors"
+                title="Edit"
+                onClick={() => handleEditTask(task)}
+              >
+                <FontAwesomeIcon icon={faEdit} className="text-xs" />
+              </button>
+              <button
+                className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                title="Delete"
+                onClick={() => handleDeleteTask(task.Id, task.TaskName)}
+              >
+                <FontAwesomeIcon icon={faTrash} className="text-xs" />
+              </button>
+              <button
+                className={`p-1 rounded transition-colors ${
+                  task.IsActive
+                    ? 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                }`}
+                title={task.IsActive ? 'Deactivate' : 'Activate'}
+                onClick={() => handleToggleTaskStatus(task.Id, task.IsActive, task.TaskName)}
+              >
+                <FontAwesomeIcon icon={task.IsActive ? faToggleOn : faToggleOff} className="text-xs" />
+              </button>
+              {!task.ParentTaskId && (
+                <button
+                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                  title="Add Subtask"
+                  onClick={() => {
+                    setSelectedTaskId(task.Id);
+                    setAddSubtaskModalOpen(true);
+                  }}
+                >
+                  <FontAwesomeIcon icon={faPlus} className="text-xs" />
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+        {hasSubTasks && isExpanded && task.SubTasks!.map(subTask => renderTaskRow(subTask, true, level + 1, effectiveTeamUsers))}
+      </React.Fragment>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="flex items-center gap-2 text-blue-600">
+          <FontAwesomeIcon icon={faSpinner} className="animate-spin text-lg" />
+          <span className="text-sm">Loading tasks...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 bg-gray-50 min-h-screen">
+      {/* All existing UI components remain same... */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2 mb-2">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">Task Management</h1>
+            <p className="text-xs text-gray-600">Manage and track all your tasks and assignments</p>
+          </div>
+          <div className="flex gap-2 items-center">
+            <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
+              {filteredTasks.length} tasks | {assignments.length} assignments
+            </span>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-colors ${
+                showFilters ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              <FontAwesomeIcon icon={faFilter} className="text-xs" />
+              Filters
+            </button>
+            <button
+              onClick={handleAddTask}
+              className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <FontAwesomeIcon icon={faPlus} className="text-xs" />
+              Add Task
+            </button>
+          </div>
+        </div>
+
+        {/* All filters section remains same... */}
+        {showFilters && (
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-9 gap-2">
+              <div className="relative lg:col-span-2">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search tasks..."
+                  className="w-full pl-7 pr-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                />
+                <FontAwesomeIcon
+                  icon={faSearch}
+                  className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"
+                />
+              </div>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Priorities</option>
+                {priorityOptions.map(priority => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
+              </select>
+              <select
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Teams</option>
+                {teams.map(team => (
+                  <option key={team.Id} value={team.Id}>{team.TeamName}</option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Status</option>
+                {statusOptions.map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+              <select
+                value={assigneeFilter}
+                onChange={(e) => setAssigneeFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Assignees</option>
+                <option value="unassigned">Unassigned</option>
+                {users.map(user => (
+                  <option key={user.Id} value={user.Id}>{user.Name}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={dateRange.start}
+                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                placeholder="Start date"
+              />
+              <input
+                type="date"
+                value={dateRange.end}
+                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                placeholder="End date"
+              />
+              <button
+                onClick={clearFilters}
+                className="flex items-center justify-center gap-1 px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs"
+              >
+                <FontAwesomeIcon icon={faTimes} className="text-xs" />
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* All alerts remain same... */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-2 flex items-center gap-2 text-xs">
+          <FontAwesomeIcon icon={faTimes} className="text-red-500 text-xs" />
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg mb-2 flex items-center gap-2 text-xs">
+          <FontAwesomeIcon icon={faSave} className="text-green-500 text-xs" />
+          {success}
+        </div>
+      )}
+
+      {/* Tasks table remains same... */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto min-h-[81vh]">
+          <table className="w-full ">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {[
+                  'Task Name',
+                  'Assignee',
+                  'Remarks',
+                  'Due Date',
+                  'Timeline',
+                  'Last Update',
+                  'Status',
+                  'Priority',
+                  'Actions',
+                ].map(header => (
+                  <th
+                    key={header}
+                    className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"
+                  >
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredTasks.length > 0 ? (
+                filteredTasks
+                  .filter(task => !task.ParentTaskId)
+                  .map(task => renderTaskRow(task))
+              ) : (
+                <tr>
+                  <td colSpan={9} className="px-2 py-8 text-center text-gray-500">
+                    <div className="flex flex-col items-center gap-2">
+                      <FontAwesomeIcon icon={faSearch} className="text-2xl text-gray-300" />
+                      <p className="text-sm">No tasks found</p>
+                      <p className="text-xs">Try adjusting your filters or create a new task</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* All existing modals remain same... */}
+      {addEditModalOpen && (
+        <AddEditTaskModal
+          isOpen={addEditModalOpen}
+          onClose={() => {
+            setAddEditModalOpen(false);
+            setEditingTask(null);
+          }}
+          onTaskSaved={handleTaskSaved}
+          task={editingTask}
+          teams={teams}
+          onError={setError}
+        />
+      )}
+
+      {addSubtaskModalOpen && selectedTaskId && (
+        <AddSubtaskModal
+          isOpen={addSubtaskModalOpen}
+          onClose={() => {
+            setAddSubtaskModalOpen(false);
+            setSelectedTaskId(null);
+          }}
+          onSubtaskSaved={handleSubtaskCreated}
+          taskId={selectedTaskId}
+          teams={teams}
+          onError={setError}
+        />
+      )}
+
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm p-4 shadow-2xl">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">{confirmModal.title}</h3>
+            <p className="text-xs text-gray-600 mb-4">{confirmModal.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmModal.action}
+                className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-xs"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AssignmentModal
+        isOpen={assignmentModal.isOpen}
+        onClose={() =>
+          setAssignmentModal({
+            isOpen: false,
+            task: null,
+            user: null,
+            isReassignment: false,
+            currentAssignee: null,
+          })
+        }
+        onConfirm={handleAssignUser}
+        task={assignmentModal.task}
+        user={assignmentModal.user}
+        isReassignment={assignmentModal.isReassignment}
+        currentAssignee={assignmentModal.currentAssignee}
+      />
+
+      <DeleteAssignmentModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, assignment: null })}
+        onConfirm={handleDeleteAssignment}
+        assignment={deleteModal.assignment}
+        loading={deletingAssignment}
+      />
+
+      {/* ✅ NEW: Task Review Modals */}
+      <TaskReviewModal
+        isOpen={taskReviewModal.isOpen}
+        taskName={taskReviewModal.taskName}
+        taskId={taskReviewModal.taskId}
+        onClose={() => setTaskReviewModal({ isOpen: false, taskName: '', taskId: null })}
+        onCompleteTask={handleCompleteTask}
+        onReassignTask={handleOpenReassignment}
+      />
+
+      <TaskReassignmentModal
+        isOpen={reassignmentModal.isOpen}
+        task={reassignmentModal.task}
+        onClose={() => setReassignmentModal({ isOpen: false, task: null })}
+        onReassign={handleTaskReassignment}
+      />
+
+      <ChatPanel
+        isOpen={chatPanel.isOpen}
+        onClose={() => setChatPanel({ isOpen: false, taskId: null })}
+        taskId={chatPanel.taskId}
+        users={users}
+      />
+
+      {chatPanel.isOpen && (
+        <div
+          className="fixed inset-0 bg-black/20 backdrop-blur-[0.87px] bg-opacity-50 backdrop:blur-md z-20"
+          onClick={() => setChatPanel({ isOpen: false, taskId: null })}
+        />
+      )}
+    </div>
+  );
+}
+-------------------------------------------------------------
+6. add edit 
+
+'use client';
+
+import { useEffect, useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faTimes,
+  faSave,
+  faSpinner,
+  faEye,
+} from '@fortawesome/free-solid-svg-icons';
+import axiosInstance from '../lib/axios';
+import RequiredMark from '../components/RequiredMark';
+
+// Interface definitions
+interface Team {
+  Id: number;
+  TeamName: string;
+  Description?: string;
+  IsActive: boolean;
+  CreatedOn: string;
+  CreatedBy?: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+}
+
+interface TaskDocument {
+  Id: number;
+  TaskId: number;
+  FileName: string;
+  CreatedBy?: string;
+  CreatedOn: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+}
+
+interface Task {
+  Id: number;
+  TaskName: string;
+  Description?: string;
+  Priority: string;
+  TeamId: number;
+  Status: string;
+  DueDate?: string;
+  CreatedBy?: string;
+  CreatedOn: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+  CompletedDate?: string;
+  IsActive: boolean;
+  ParentTaskId?: number;
+  AssigneeId?: number;
+  Team: Team;
+  Documents?: TaskDocument[];
+  Assignee?: any;
+}
+
+interface TaskResponse {
+  success: boolean;
+  task?: Task;
+  error?: string;
+  message?: string;
+}
+
+interface ApiError {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+}
+
+interface AddEditTaskModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onTaskSaved: (task: Task, isEdit: boolean) => void;
+  task?: Task | null;
+  teams: Team[];
+  onError: (error: string) => void;
+}
+
+export default function AddEditTaskModal({
+  isOpen,
+  onClose,
+  onTaskSaved,
+  task,
+  teams,
+  onError,
+}: AddEditTaskModalProps) {
+  // Form state
+  const [saving, setSaving] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<number>(0);
+  const [formData, setFormData] = useState({
+    id: null as number | null,
+    taskName: '',
+    description: '',
+    priority: 'Medium' as string,
+    teamId: '',
+    status: 'To Do' as string,
+    dueDate: '',
+    files: [] as File[],
+    filePreviews: [] as string[],
+  });
+  const [localError, setLocalError] = useState<string>('');
+  const [viewFileModal, setViewFileModal] = useState<{
+    isOpen: boolean;
+    fileName: string;
+  }>({
+    isOpen: false,
+    fileName: '',
+  });
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
+    isOpen: boolean;
+    documentId: number | null;
+    fileName: string;
+  }>({
+    isOpen: false,
+    documentId: null,
+    fileName: '',
+  });
+
+  // Priority and status options
+  const priorityOptions = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
+  const statusOptions = ['To Do', 'In Progress', 'Completed', 'Forwarded', 'Closed'];
+
+  // Tab configuration
+  const tabs = [
+    { id: 0, label: 'Basic Info', icon: null },
+    { id: 1, label: 'Details', icon: null },
+    { id: 2, label: 'Review', icon: null },
+  ];
+
+  // Clear local error after 5 seconds
+  useEffect(() => {
+    if (localError) {
+      const timer = setTimeout(() => {
+        setLocalError('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [localError]);
+
+  // Initialize form when task changes or modal opens
+  useEffect(() => {
+    if (isOpen) {
+      if (task) {
+        setFormData({
+          id: task.Id,
+          taskName: task.TaskName,
+          description: task.Description || '',
+          priority: task.Priority,
+          teamId: task.TeamId.toString(),
+          status: task.Status,
+          dueDate: task.DueDate ? new Date(task.DueDate).toISOString().split('T')[0] : '',
+          files: [],
+          filePreviews: [],
+        });
+      } else {
+        resetForm();
+      }
+      setActiveTab(0);
+    }
+  }, [isOpen, task]);
+
+  // Reset form to initial state
+  const resetForm = () => {
+    formData.filePreviews.forEach(URL.revokeObjectURL);
+    setFormData({
+      id: null,
+      taskName: '',
+      description: '',
+      priority: 'Medium',
+      teamId: '',
+      status: 'To Do',
+      dueDate: '',
+      files: [],
+      filePreviews: [],
+    });
+    setLocalError('');
+    setActiveTab(0);
+  };
+
+  // Handle input changes
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Handle file changes
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newFiles = Array.from(e.target.files || []);
+    const newPreviews = newFiles.map((file) => URL.createObjectURL(file));
+    setFormData(prev => ({
+      ...prev,
+      files: [...prev.files, ...newFiles],
+      filePreviews: [...prev.filePreviews, ...newPreviews],
+    }));
+  };
+
+  // Handle removing files
+  const handleRemoveFile = (index: number) => {
+    const updatedFiles = formData.files.filter((_, i) => i !== index);
+    const updatedPreviews = formData.filePreviews.filter((_, i) => i !== index);
+    URL.revokeObjectURL(formData.filePreviews[index]);
+    setFormData(prev => ({
+      ...prev,
+      files: updatedFiles,
+      filePreviews: updatedPreviews,
+    }));
+  };
+
+  // Handle deleting existing documents with confirmation
+  const handleDeleteDocument = async (documentId: number, fileName: string) => {
+    setDeleteConfirmModal({ isOpen: true, documentId, fileName });
+  };
+
+  const confirmDeleteDocument = async () => {
+    if (!deleteConfirmModal.documentId) return;
+
+    try {
+      const response = await axiosInstance.delete<TaskResponse>(
+        `/api/task/delete-document?id=${deleteConfirmModal.documentId}`
+      );
+
+      if (response.data && typeof response.data === 'object' && 'success' in response.data) {
+        const result = response.data as TaskResponse;
+        if (result.success) {
+          setLocalError('Document deleted successfully');
+          if (task) {
+            onTaskSaved(
+              {
+                ...task,
+                Documents: task.Documents?.filter(doc => doc.Id !== deleteConfirmModal.documentId),
+              },
+              true
+            );
+          }
+        } else {
+          setLocalError(result.error || 'Failed to delete document');
+        }
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setLocalError(apiError.response?.data?.error || 'Failed to delete document');
+    } finally {
+      setDeleteConfirmModal({ isOpen: false, documentId: null, fileName: '' });
+    }
+  };
+
+  // Form validation
+  const validateCurrentTab = (): boolean => {
+    switch (activeTab) {
+      case 0: // Basic Info
+        if (!formData.taskName.trim()) {
+          setLocalError('Task name is required');
+          return false;
+        }
+        if (!formData.teamId && !task?.ParentTaskId) {
+          setLocalError('Team selection is required');
+          return false;
+        }
+        break;
+      case 1: // Details
+        break;
+      case 2: // Review
+        break;
+    }
+    setLocalError('');
+    return true;
+  };
+
+  // Navigate between tabs
+  const handleNextTab = () => {
+    if (validateCurrentTab() && activeTab < tabs.length - 1) {
+      setActiveTab(activeTab + 1);
+    }
+  };
+
+  const handlePrevTab = () => {
+    if (activeTab > 0) {
+      setActiveTab(activeTab - 1);
+    }
+  };
+
+  const handleTabClick = (tabId: number) => {
+    if (validateCurrentTab()) {
+      setActiveTab(tabId);
+    }
+  };
+
+  // Submit form
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateCurrentTab()) {
+      return;
+    }
+
+    setLocalError('');
+    setSaving(true);
+
+    try {
+      const formDataToSend = new FormData();
+      formDataToSend.append('taskName', formData.taskName);
+      formDataToSend.append('description', formData.description);
+      formDataToSend.append('priority', formData.priority);
+      formDataToSend.append('teamId', formData.teamId);
+      formDataToSend.append('status', formData.status);
+
+      if (formData.dueDate) {
+        formDataToSend.append('dueDate', formData.dueDate);
+      }
+
+      formData.files.forEach(file => {
+        formDataToSend.append('files', file);
+      });
+
+      if (formData.id) {
+        formDataToSend.append('id', formData.id.toString());
+      }
+
+      const url = formData.id ? `/api/task/${formData.id}` : '/api/task';
+      const method = formData.id ? 'put' : 'post';
+
+      const response = await axiosInstance({
+        method,
+        url,
+        data: formDataToSend,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (response.data && typeof response.data === 'object' && 'success' in response.data) {
+        const result = response.data as TaskResponse;
+        if (result.success && result.task) {
+          onTaskSaved(result.task, !!formData.id);
+        } else {
+          setLocalError(result.error || 'Failed to process task');
+        }
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      const errorMessage =
+        apiError.response?.data?.error ||
+        apiError.response?.data?.message ||
+        'Failed to process task';
+      setLocalError(errorMessage);
+      onError(errorMessage);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-xl">
+        {/* Modal Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3 text-white">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">
+              {formData.id ? 'Edit Task' : 'Create New Task'}
+            </h2>
+            <button
+              onClick={handleClose}
+              className="text-white hover:text-gray-200 transition-colors"
+            >
+              <FontAwesomeIcon icon={faTimes} className="text-base" />
+            </button>
+          </div>
+
+          {/* Tab Navigation */}
+          <div className="flex gap-2 mt-3">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabClick(tab.id)}
+                className={`px-3 py-1 rounded-lg transition-colors text-sm ${
+                  activeTab === tab.id
+                    ? 'bg-white text-blue-700 font-medium'
+                    : 'bg-blue-500 text-white hover:bg-blue-400'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Modal Content */}
+        <div className="p-4 overflow-y-auto max-h-[calc(85vh-180px)]">
+          {localError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-3 text-sm">
+              {localError}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            {/* Tab 0: Basic Information */}
+            {activeTab === 0 && (
+              <div className="space-y-2">
+                <h3 className="text-base font-semibold text-gray-800 mb-2">Basic Information</h3>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Task Name <RequiredMark />
+                  </label>
+                  <input
+                    type="text"
+                    name="taskName"
+                    value={formData.taskName}
+                    onChange={handleInputChange}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter a clear and descriptive task name"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    rows={3}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Provide detailed information about this task..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Team <RequiredMark />
+                  </label>
+                  {task?.ParentTaskId ? (
+                    <div className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm bg-gray-100 text-gray-600 cursor-not-allowed">
+                      {teams.find(t => t.Id === task.TeamId)?.TeamName || 'N/A'}
+                    </div>
+                  ) : (
+                    <select
+                      name="teamId"
+                      value={formData.teamId}
+                      onChange={handleInputChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+
+                    >
+                      <option value="">Select a team for this task</option>
+                      {teams.map(team => (
+                        <option key={team.Id} value={team.Id}>
+                          {team.TeamName}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tab 1: Task Details */}
+            {activeTab === 1 && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 mb-2">Task Details</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Priority <RequiredMark />
+                    </label>
+                    <select
+                      name="priority"
+                      value={formData.priority}
+                      onChange={handleInputChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      {priorityOptions.map(priority => (
+                        <option key={priority} value={priority}>
+                          {priority}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Due Date
+                    </label>
+                    <input
+                      type="date"
+                      name="dueDate"
+                      value={formData.dueDate}
+                      onChange={handleInputChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                </div>
+
+                {/* File Attachments */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    File Attachments
+                  </label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-blue-400 transition-colors">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx"
+                      onChange={handleFileChange}
+                      className="w-full text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Supported formats: Images, PDFs, Word documents, Excel files
+                    </p>
+                  </div>
+                </div>
+
+                {/* File Previews */}
+                {formData.filePreviews.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      New Files ({formData.filePreviews.length})
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {formData.filePreviews.map((preview, index) => (
+                        <div key={index} className="relative group">
+                          <div className="w-full h-16 bg-gray-100 rounded-lg overflow-hidden">
+                            {formData.files[index].type.startsWith('image/') ? (
+                              <img
+                                src={preview}
+                                alt={`Preview ${index}`}
+                                className="w-full h-full object-cover cursor-pointer"
+                                onClick={() =>
+                                  setViewFileModal({
+                                    isOpen: true,
+                                    fileName: formData.files[index].name,
+                                  })
+                                }
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-blue-50">
+                                <span className="text-xs text-blue-600 font-medium">
+                                  {formData.files[index].name.split('.').pop()?.toUpperCase()}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(index)}
+                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <FontAwesomeIcon icon={faTimes} />
+                          </button>
+                          <p className="text-xs text-gray-600 mt-1 truncate">
+                            {formData.files[index].name}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Existing Files (for edit mode) */}
+                {formData.id && task?.Documents && task.Documents.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Existing Files ({task.Documents.length})
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {task.Documents.map(doc => (
+                        <div key={doc.Id} className="relative group">
+                          <div className="w-full h-16 bg-gray-100 rounded-lg overflow-hidden">
+                            <img
+                              src={`/images/task/${doc.FileName}`}
+                              alt={doc.FileName}
+                              className="w-full h-full object-cover cursor-pointer"
+                              onClick={() =>
+                                setViewFileModal({
+                                  isOpen: true,
+                                  fileName: doc.FileName,
+                                })
+                              }
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDocument(doc.Id, doc.FileName)}
+                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <FontAwesomeIcon icon={faTimes} />
+                          </button>
+                          <p className="text-xs text-gray-600 mt-1 truncate">
+                            {doc.FileName}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tab 2: Review */}
+            {activeTab === 2 && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 mb-2">Review & Submit</h3>
+
+                {/* Main Task Summary */}
+                <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                  <h4 className="font-semibold text-blue-800 mb-2 text-sm">Main Task Summary</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="font-medium text-gray-700">Task Name:</span>
+                      <p className="text-gray-900">{formData.taskName}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Team:</span>
+                      <p className="text-gray-900">
+                        {teams.find(t => t.Id.toString() === formData.teamId)?.TeamName}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Priority:</span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ml-2
+                        ${formData.priority === 'Critical' ? 'bg-red-100 text-red-800' :
+                          formData.priority === 'Urgent' ? 'bg-orange-100 text-orange-800' :
+                          formData.priority === 'High' ? 'bg-yellow-100 text-yellow-800' :
+                          formData.priority === 'Medium' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'}
+                      `}
+                      >
+                        {formData.priority}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Status:</span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ml-2
+                        ${formData.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                          formData.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                          formData.status === 'To Do' ? 'bg-gray-100 text-gray-800' :
+                          formData.status === 'Forwarded' ? 'bg-purple-100 text-purple-800' :
+                          'bg-red-100 text-red-800'}
+                      `}
+                      >
+                        {formData.status}
+                      </span>
+                    </div>
+                    {formData.dueDate && (
+                      <div>
+                        <span className="font-medium text-gray-700">Due Date:</span>
+                        <p className="text-gray-900">
+                          {new Date(formData.dueDate).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <span className="font-medium text-gray-700">Files:</span>
+                      <p className="text-gray-900">
+                        {formData.files.length + (task?.Documents?.length || 0)} files attached
+                      </p>
+                    </div>
+                  </div>
+                  {formData.description && (
+                    <div className="mt-2">
+                      <span className="font-medium text-gray-700">Description:</span>
+                      <p className="text-gray-900 mt-1">{formData.description}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Summary */}
+                <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                  <h4 className="font-semibold text-green-800 mb-2 text-sm">Ready to Submit</h4>
+                  <p className="text-green-700 text-sm">
+                    {formData.id
+                      ? 'Your task changes will be saved and updated in the system.'
+                      : 'Your new task will be created and added to the task list.'}
+                  </p>
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
+          <div className="flex justify-between items-center">
+            <div className="flex gap-2">
+              {activeTab > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePrevTab}
+                  className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                >
+                  Previous
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="px-4 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+
+              {activeTab < tabs.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={handleNextTab}
+                  className="px-4 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                >
+                  Next
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  onClick={handleSubmit}
+                  disabled={saving}
+                  className="px-4 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  {saving && <FontAwesomeIcon icon={faSpinner} className="animate-spin" />}
+                  {formData.id ? 'Update Task' : 'Create Task'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* File View Modal */}
+      {viewFileModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center p-3 z-60">
+          <div className="bg-white rounded-lg w-full max-w-3xl max-h-[85vh] overflow-hidden">
+            <div className="flex justify-between items-center p-3 border-b">
+              <h3 className="text-base font-semibold text-gray-900">{viewFileModal.fileName}</h3>
+              <button
+                onClick={() => setViewFileModal({ isOpen: false, fileName: '' })}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <FontAwesomeIcon icon={faTimes} className="text-base" />
+              </button>
+            </div>
+            <div className="p-3">
+              {viewFileModal.fileName.toLowerCase().endsWith('.pdf') ? (
+                <iframe
+                  src={
+                    viewFileModal.fileName.startsWith('blob:')
+                      ? viewFileModal.fileName
+                      : `/images/task/${viewFileModal.fileName}`
+                  }
+                  className="w-full h-80 rounded-lg"
+                  title={viewFileModal.fileName}
+                />
+              ) : (
+                <img
+                  src={
+                    viewFileModal.fileName.startsWith('blob:')
+                      ? viewFileModal.fileName
+                      : `/images/task/${viewFileModal.fileName}`
+                  }
+                  alt={viewFileModal.fileName}
+                  className="w-full h-auto max-h-80 object-contain rounded-lg"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center p-3 z-70">
+          <div className="bg-white rounded-lg w-full max-w-sm p-4 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Delete Document</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to delete "{deleteConfirmModal.fileName}"? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirmModal({ isOpen: false, documentId: null, fileName: '' })}
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteDocument}
+                className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}'use client';
+
+import { useEffect, useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faTimes,
+  faSave,
+  faSpinner,
+  faEye,
+} from '@fortawesome/free-solid-svg-icons';
+import axiosInstance from '../lib/axios';
+import RequiredMark from '../components/RequiredMark';
+
+// Interface definitions
+interface Team {
+  Id: number;
+  TeamName: string;
+  Description?: string;
+  IsActive: boolean;
+  CreatedOn: string;
+  CreatedBy?: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+}
+
+interface TaskDocument {
+  Id: number;
+  TaskId: number;
+  FileName: string;
+  CreatedBy?: string;
+  CreatedOn: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+}
+
+interface Task {
+  Id: number;
+  TaskName: string;
+  Description?: string;
+  Priority: string;
+  TeamId: number;
+  Status: string;
+  DueDate?: string;
+  CreatedBy?: string;
+  CreatedOn: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+  CompletedDate?: string;
+  IsActive: boolean;
+  ParentTaskId?: number;
+  AssigneeId?: number;
+  Team: Team;
+  Documents?: TaskDocument[];
+  Assignee?: any;
+}
+
+interface TaskResponse {
+  success: boolean;
+  task?: Task;
+  error?: string;
+  message?: string;
+}
+
+interface ApiError {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+}
+
+interface AddEditTaskModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onTaskSaved: (task: Task, isEdit: boolean) => void;
+  task?: Task | null;
+  teams: Team[];
+  onError: (error: string) => void;
+}
+
+export default function AddEditTaskModal({
+  isOpen,
+  onClose,
+  onTaskSaved,
+  task,
+  teams,
+  onError,
+}: AddEditTaskModalProps) {
+  // Form state
+  const [saving, setSaving] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<number>(0);
+  const [formData, setFormData] = useState({
+    id: null as number | null,
+    taskName: '',
+    description: '',
+    priority: 'Medium' as string,
+    teamId: '',
+    status: 'To Do' as string,
+    dueDate: '',
+    files: [] as File[],
+    filePreviews: [] as string[],
+  });
+  const [localError, setLocalError] = useState<string>('');
+  const [viewFileModal, setViewFileModal] = useState<{
+    isOpen: boolean;
+    fileName: string;
+  }>({
+    isOpen: false,
+    fileName: '',
+  });
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
+    isOpen: boolean;
+    documentId: number | null;
+    fileName: string;
+  }>({
+    isOpen: false,
+    documentId: null,
+    fileName: '',
+  });
+
+  // Priority and status options
+  const priorityOptions = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
+  const statusOptions = ['To Do', 'In Progress', 'Completed', 'Forwarded', 'Closed'];
+
+  // Tab configuration
+  const tabs = [
+    { id: 0, label: 'Basic Info', icon: null },
+    { id: 1, label: 'Details', icon: null },
+    { id: 2, label: 'Review', icon: null },
+  ];
+
+  // Clear local error after 5 seconds
+  useEffect(() => {
+    if (localError) {
+      const timer = setTimeout(() => {
+        setLocalError('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [localError]);
+
+  // Initialize form when task changes or modal opens
+  useEffect(() => {
+    if (isOpen) {
+      if (task) {
+        setFormData({
+          id: task.Id,
+          taskName: task.TaskName,
+          description: task.Description || '',
+          priority: task.Priority,
+          teamId: task.TeamId.toString(),
+          status: task.Status,
+          dueDate: task.DueDate ? new Date(task.DueDate).toISOString().split('T')[0] : '',
+          files: [],
+          filePreviews: [],
+        });
+      } else {
+        resetForm();
+      }
+      setActiveTab(0);
+    }
+  }, [isOpen, task]);
+
+  // Reset form to initial state
+  const resetForm = () => {
+    formData.filePreviews.forEach(URL.revokeObjectURL);
+    setFormData({
+      id: null,
+      taskName: '',
+      description: '',
+      priority: 'Medium',
+      teamId: '',
+      status: 'To Do',
+      dueDate: '',
+      files: [],
+      filePreviews: [],
+    });
+    setLocalError('');
+    setActiveTab(0);
+  };
+
+  // Handle input changes
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Handle file changes
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newFiles = Array.from(e.target.files || []);
+    const newPreviews = newFiles.map((file) => URL.createObjectURL(file));
+    setFormData(prev => ({
+      ...prev,
+      files: [...prev.files, ...newFiles],
+      filePreviews: [...prev.filePreviews, ...newPreviews],
+    }));
+  };
+
+  // Handle removing files
+  const handleRemoveFile = (index: number) => {
+    const updatedFiles = formData.files.filter((_, i) => i !== index);
+    const updatedPreviews = formData.filePreviews.filter((_, i) => i !== index);
+    URL.revokeObjectURL(formData.filePreviews[index]);
+    setFormData(prev => ({
+      ...prev,
+      files: updatedFiles,
+      filePreviews: updatedPreviews,
+    }));
+  };
+
+  // Handle deleting existing documents with confirmation
+  const handleDeleteDocument = async (documentId: number, fileName: string) => {
+    setDeleteConfirmModal({ isOpen: true, documentId, fileName });
+  };
+
+  const confirmDeleteDocument = async () => {
+    if (!deleteConfirmModal.documentId) return;
+
+    try {
+      const response = await axiosInstance.delete<TaskResponse>(
+        `/api/task/delete-document?id=${deleteConfirmModal.documentId}`
+      );
+
+      if (response.data && typeof response.data === 'object' && 'success' in response.data) {
+        const result = response.data as TaskResponse;
+        if (result.success) {
+          setLocalError('Document deleted successfully');
+          if (task) {
+            onTaskSaved(
+              {
+                ...task,
+                Documents: task.Documents?.filter(doc => doc.Id !== deleteConfirmModal.documentId),
+              },
+              true
+            );
+          }
+        } else {
+          setLocalError(result.error || 'Failed to delete document');
+        }
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setLocalError(apiError.response?.data?.error || 'Failed to delete document');
+    } finally {
+      setDeleteConfirmModal({ isOpen: false, documentId: null, fileName: '' });
+    }
+  };
+
+  // Form validation
+  const validateCurrentTab = (): boolean => {
+    switch (activeTab) {
+      case 0: // Basic Info
+        if (!formData.taskName.trim()) {
+          setLocalError('Task name is required');
+          return false;
+        }
+        if (!formData.teamId && !task?.ParentTaskId) {
+          setLocalError('Team selection is required');
+          return false;
+        }
+        break;
+      case 1: // Details
+        break;
+      case 2: // Review
+        break;
+    }
+    setLocalError('');
+    return true;
+  };
+
+  // Navigate between tabs
+  const handleNextTab = () => {
+    if (validateCurrentTab() && activeTab < tabs.length - 1) {
+      setActiveTab(activeTab + 1);
+    }
+  };
+
+  const handlePrevTab = () => {
+    if (activeTab > 0) {
+      setActiveTab(activeTab - 1);
+    }
+  };
+
+  const handleTabClick = (tabId: number) => {
+    if (validateCurrentTab()) {
+      setActiveTab(tabId);
+    }
+  };
+
+  // Submit form
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateCurrentTab()) {
+      return;
+    }
+
+    setLocalError('');
+    setSaving(true);
+
+    try {
+      const formDataToSend = new FormData();
+      formDataToSend.append('taskName', formData.taskName);
+      formDataToSend.append('description', formData.description);
+      formDataToSend.append('priority', formData.priority);
+      formDataToSend.append('teamId', formData.teamId);
+      formDataToSend.append('status', formData.status);
+
+      if (formData.dueDate) {
+        formDataToSend.append('dueDate', formData.dueDate);
+      }
+
+      formData.files.forEach(file => {
+        formDataToSend.append('files', file);
+      });
+
+      if (formData.id) {
+        formDataToSend.append('id', formData.id.toString());
+      }
+
+      const url = formData.id ? `/api/task/${formData.id}` : '/api/task';
+      const method = formData.id ? 'put' : 'post';
+
+      const response = await axiosInstance({
+        method,
+        url,
+        data: formDataToSend,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      if (response.data && typeof response.data === 'object' && 'success' in response.data) {
+        const result = response.data as TaskResponse;
+        if (result.success && result.task) {
+          onTaskSaved(result.task, !!formData.id);
+        } else {
+          setLocalError(result.error || 'Failed to process task');
+        }
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      const errorMessage =
+        apiError.response?.data?.error ||
+        apiError.response?.data?.message ||
+        'Failed to process task';
+      setLocalError(errorMessage);
+      onError(errorMessage);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-xl">
+        {/* Modal Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3 text-white">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">
+              {formData.id ? 'Edit Task' : 'Create New Task'}
+            </h2>
+            <button
+              onClick={handleClose}
+              className="text-white hover:text-gray-200 transition-colors"
+            >
+              <FontAwesomeIcon icon={faTimes} className="text-base" />
+            </button>
+          </div>
+
+          {/* Tab Navigation */}
+          <div className="flex gap-2 mt-3">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabClick(tab.id)}
+                className={`px-3 py-1 rounded-lg transition-colors text-sm ${
+                  activeTab === tab.id
+                    ? 'bg-white text-blue-700 font-medium'
+                    : 'bg-blue-500 text-white hover:bg-blue-400'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Modal Content */}
+        <div className="p-4 overflow-y-auto max-h-[calc(85vh-180px)]">
+          {localError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-3 text-sm">
+              {localError}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            {/* Tab 0: Basic Information */}
+            {activeTab === 0 && (
+              <div className="space-y-2">
+                <h3 className="text-base font-semibold text-gray-800 mb-2">Basic Information</h3>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Task Name <RequiredMark />
+                  </label>
+                  <input
+                    type="text"
+                    name="taskName"
+                    value={formData.taskName}
+                    onChange={handleInputChange}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter a clear and descriptive task name"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    rows={3}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Provide detailed information about this task..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Team <RequiredMark />
+                  </label>
+                  {task?.ParentTaskId ? (
+                    <div className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm bg-gray-100 text-gray-600 cursor-not-allowed">
+                      {teams.find(t => t.Id === task.TeamId)?.TeamName || 'N/A'}
+                    </div>
+                  ) : (
+                    <select
+                      name="teamId"
+                      value={formData.teamId}
+                      onChange={handleInputChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+
+                    >
+                      <option value="">Select a team for this task</option>
+                      {teams.map(team => (
+                        <option key={team.Id} value={team.Id}>
+                          {team.TeamName}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tab 1: Task Details */}
+            {activeTab === 1 && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 mb-2">Task Details</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Priority <RequiredMark />
+                    </label>
+                    <select
+                      name="priority"
+                      value={formData.priority}
+                      onChange={handleInputChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      {priorityOptions.map(priority => (
+                        <option key={priority} value={priority}>
+                          {priority}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Due Date
+                    </label>
+                    <input
+                      type="date"
+                      name="dueDate"
+                      value={formData.dueDate}
+                      onChange={handleInputChange}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                </div>
+
+                {/* File Attachments */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    File Attachments
+                  </label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-blue-400 transition-colors">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx"
+                      onChange={handleFileChange}
+                      className="w-full text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Supported formats: Images, PDFs, Word documents, Excel files
+                    </p>
+                  </div>
+                </div>
+
+                {/* File Previews */}
+                {formData.filePreviews.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      New Files ({formData.filePreviews.length})
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {formData.filePreviews.map((preview, index) => (
+                        <div key={index} className="relative group">
+                          <div className="w-full h-16 bg-gray-100 rounded-lg overflow-hidden">
+                            {formData.files[index].type.startsWith('image/') ? (
+                              <img
+                                src={preview}
+                                alt={`Preview ${index}`}
+                                className="w-full h-full object-cover cursor-pointer"
+                                onClick={() =>
+                                  setViewFileModal({
+                                    isOpen: true,
+                                    fileName: formData.files[index].name,
+                                  })
+                                }
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-blue-50">
+                                <span className="text-xs text-blue-600 font-medium">
+                                  {formData.files[index].name.split('.').pop()?.toUpperCase()}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(index)}
+                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <FontAwesomeIcon icon={faTimes} />
+                          </button>
+                          <p className="text-xs text-gray-600 mt-1 truncate">
+                            {formData.files[index].name}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Existing Files (for edit mode) */}
+                {formData.id && task?.Documents && task.Documents.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Existing Files ({task.Documents.length})
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {task.Documents.map(doc => (
+                        <div key={doc.Id} className="relative group">
+                          <div className="w-full h-16 bg-gray-100 rounded-lg overflow-hidden">
+                            <img
+                              src={`/images/task/${doc.FileName}`}
+                              alt={doc.FileName}
+                              className="w-full h-full object-cover cursor-pointer"
+                              onClick={() =>
+                                setViewFileModal({
+                                  isOpen: true,
+                                  fileName: doc.FileName,
+                                })
+                              }
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDocument(doc.Id, doc.FileName)}
+                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <FontAwesomeIcon icon={faTimes} />
+                          </button>
+                          <p className="text-xs text-gray-600 mt-1 truncate">
+                            {doc.FileName}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tab 2: Review */}
+            {activeTab === 2 && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 mb-2">Review & Submit</h3>
+
+                {/* Main Task Summary */}
+                <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                  <h4 className="font-semibold text-blue-800 mb-2 text-sm">Main Task Summary</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="font-medium text-gray-700">Task Name:</span>
+                      <p className="text-gray-900">{formData.taskName}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Team:</span>
+                      <p className="text-gray-900">
+                        {teams.find(t => t.Id.toString() === formData.teamId)?.TeamName}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Priority:</span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ml-2
+                        ${formData.priority === 'Critical' ? 'bg-red-100 text-red-800' :
+                          formData.priority === 'Urgent' ? 'bg-orange-100 text-orange-800' :
+                          formData.priority === 'High' ? 'bg-yellow-100 text-yellow-800' :
+                          formData.priority === 'Medium' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'}
+                      `}
+                      >
+                        {formData.priority}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Status:</span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ml-2
+                        ${formData.status === 'Completed' ? 'bg-green-100 text-green-800' :
+                          formData.status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                          formData.status === 'To Do' ? 'bg-gray-100 text-gray-800' :
+                          formData.status === 'Forwarded' ? 'bg-purple-100 text-purple-800' :
+                          'bg-red-100 text-red-800'}
+                      `}
+                      >
+                        {formData.status}
+                      </span>
+                    </div>
+                    {formData.dueDate && (
+                      <div>
+                        <span className="font-medium text-gray-700">Due Date:</span>
+                        <p className="text-gray-900">
+                          {new Date(formData.dueDate).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <span className="font-medium text-gray-700">Files:</span>
+                      <p className="text-gray-900">
+                        {formData.files.length + (task?.Documents?.length || 0)} files attached
+                      </p>
+                    </div>
+                  </div>
+                  {formData.description && (
+                    <div className="mt-2">
+                      <span className="font-medium text-gray-700">Description:</span>
+                      <p className="text-gray-900 mt-1">{formData.description}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Summary */}
+                <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                  <h4 className="font-semibold text-green-800 mb-2 text-sm">Ready to Submit</h4>
+                  <p className="text-green-700 text-sm">
+                    {formData.id
+                      ? 'Your task changes will be saved and updated in the system.'
+                      : 'Your new task will be created and added to the task list.'}
+                  </p>
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
+          <div className="flex justify-between items-center">
+            <div className="flex gap-2">
+              {activeTab > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePrevTab}
+                  className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+                >
+                  Previous
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="px-4 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+
+              {activeTab < tabs.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={handleNextTab}
+                  className="px-4 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                >
+                  Next
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  onClick={handleSubmit}
+                  disabled={saving}
+                  className="px-4 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                >
+                  {saving && <FontAwesomeIcon icon={faSpinner} className="animate-spin" />}
+                  {formData.id ? 'Update Task' : 'Create Task'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* File View Modal */}
+      {viewFileModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center p-3 z-60">
+          <div className="bg-white rounded-lg w-full max-w-3xl max-h-[85vh] overflow-hidden">
+            <div className="flex justify-between items-center p-3 border-b">
+              <h3 className="text-base font-semibold text-gray-900">{viewFileModal.fileName}</h3>
+              <button
+                onClick={() => setViewFileModal({ isOpen: false, fileName: '' })}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <FontAwesomeIcon icon={faTimes} className="text-base" />
+              </button>
+            </div>
+            <div className="p-3">
+              {viewFileModal.fileName.toLowerCase().endsWith('.pdf') ? (
+                <iframe
+                  src={
+                    viewFileModal.fileName.startsWith('blob:')
+                      ? viewFileModal.fileName
+                      : `/images/task/${viewFileModal.fileName}`
+                  }
+                  className="w-full h-80 rounded-lg"
+                  title={viewFileModal.fileName}
+                />
+              ) : (
+                <img
+                  src={
+                    viewFileModal.fileName.startsWith('blob:')
+                      ? viewFileModal.fileName
+                      : `/images/task/${viewFileModal.fileName}`
+                  }
+                  alt={viewFileModal.fileName}
+                  className="w-full h-auto max-h-80 object-contain rounded-lg"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center p-3 z-70">
+          <div className="bg-white rounded-lg w-full max-w-sm p-4 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900 mb-2">Delete Document</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to delete "{deleteConfirmModal.fileName}"? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteConfirmModal({ isOpen: false, documentId: null, fileName: '' })}
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteDocument}
+                className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+---------------------------------------------------------------
+7. sub task 
+
+'use client';
+
+import { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faTimes,
+  faSpinner,
+  faSave,
+} from '@fortawesome/free-solid-svg-icons';
+import axiosInstance from '../lib/axios';
+import RequiredMark from '../components/RequiredMark';
+
+interface Team {
+  Id: number;
+  TeamName: string;
+  Description?: string;
+  IsActive: boolean;
+}
+
+// Updated Task interface to match new schema
+interface UserInfo {
+  Id: number;
+  Name: string;
+  Email: string;
+}
+
+interface Task {
+  Id: number;
+  TaskName: string;
+  Description?: string;
+  Priority: string;
+  TeamId: number;
+  Status: string;
+  DueDate?: string;
+  CreatedBy?: number; // Changed from string to number (User ID)
+  CreatedOn: string;
+  ModifiedBy?: number; // Changed from string to number (User ID)
+  ModifiedOn?: string;
+  CompletedDate?: string;
+  IsActive: boolean;
+  ParentTaskId?: number;
+  AssigneeId?: number;
+  Team: Team;
+  SubTasks?: Task[];
+  CreatedByUser?: UserInfo; // New field for user info
+  ModifiedByUser?: UserInfo; // New field for user info
+}
+
+interface SubtaskForm {
+  taskName: string;
+  description: string;
+  priority: string;
+  status: string;
+  dueDate: string;
+  teamId: string;
+  files: File[];
+  filePreviews: string[];
+}
+
+interface SubtaskResponse {
+  success: boolean;
+  task?: Task; // Updated to use new Task interface
+  error?: string;
+  message?: string;
+}
+
+interface AddSubtaskModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubtaskSaved: (subtask: Task) => void; // Updated type
+  taskId: number;
+  teams: Team[];
+  onError: (error: string) => void;
+}
+
+const priorityOptions = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
+const statusOptions = ['To Do', 'In Progress', 'Completed', 'Forwarded', 'Closed'];
+
+export default function AddSubtaskModal({
+  isOpen,
+  onClose,
+  onSubtaskSaved,
+  taskId,
+  teams,
+  onError,
+}: AddSubtaskModalProps) {
+  const [formData, setFormData] = useState<Omit<SubtaskForm, 'filePreviews'>>({
+    taskName: '',
+    description: '',
+    priority: 'Medium',
+    status: 'To Do',
+    dueDate: '',
+    teamId: teams.length > 0 ? teams[0].Id.toString() : '', // Default to first team
+    files: [],
+  });
+  const [filePreviews, setFilePreviews] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [localError, setLocalError] = useState('');
+
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newFiles = Array.from(e.target.files || []);
+    const newPreviews = newFiles.map(file => URL.createObjectURL(file));
+    setFormData(prev => ({
+      ...prev,
+      files: [...prev.files, ...newFiles],
+    }));
+    setFilePreviews(prev => [...prev, ...newPreviews]);
+  };
+
+  const handleRemoveFile = (index: number) => {
+    const updatedFiles = formData.files.filter((_, i) => i !== index);
+    const updatedPreviews = filePreviews.filter((_, i) => i !== index);
+    URL.revokeObjectURL(filePreviews[index]);
+    setFormData(prev => ({ ...prev, files: updatedFiles }));
+    setFilePreviews(updatedPreviews);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.taskName.trim()) {
+      setLocalError('Subtask name is required');
+      return;
+    }
+
+    if (!formData.teamId) {
+      setLocalError('Team selection is required');
+      return;
+    }
+
+    setLocalError('');
+    setSaving(true);
+
+    try {
+      const formDataToSend = new FormData();
+      formDataToSend.append('taskName', formData.taskName);
+      formDataToSend.append('description', formData.description || '');
+      formDataToSend.append('priority', formData.priority);
+      formDataToSend.append('teamId', formData.teamId);
+      formDataToSend.append('status', formData.status);
+      formDataToSend.append('parentTaskId', taskId.toString());
+      
+      if (formData.dueDate) {
+        formDataToSend.append('dueDate', formData.dueDate);
+      }
+      
+      formData.files.forEach(file => {
+        formDataToSend.append('files', file);
+      });
+
+      // API call to create subtask
+      const response = await axiosInstance.post<SubtaskResponse>('/api/task/subtask', formDataToSend, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      // Handle successful response
+      if (response.data.success && response.data.task) {
+        onSubtaskSaved(response.data.task);
+        resetForm();
+        onClose();
+      } else {
+        const errorMsg = response.data.error || 'Failed to create subtask';
+        setLocalError(errorMsg);
+        onError(errorMsg);
+      }
+    } catch (err: any) {
+      // Enhanced error handling
+      const error = err as {
+        response?: {
+          data?: {
+            error?: string;
+            message?: string;
+          };
+          status?: number;
+        };
+        message?: string;
+      };
+      
+      let errorMsg = 'Failed to create subtask';
+      
+      if (error.response?.data?.error) {
+        errorMsg = error.response.data.error;
+      } else if (error.response?.data?.message) {
+        errorMsg = error.response.data.message;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      
+      // Add status code context if available
+      if (error.response?.status) {
+        errorMsg += ` (Status: ${error.response.status})`;
+      }
+      
+      setLocalError(errorMsg);
+      onError(errorMsg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      taskName: '',
+      description: '',
+      priority: 'Medium',
+      status: 'To Do',
+      dueDate: '',
+      teamId: teams.length > 0 ? teams[0].Id.toString() : '',
+      files: [],
+    });
+    // Clean up file previews to prevent memory leaks
+    filePreviews.forEach(URL.revokeObjectURL);
+    setFilePreviews([]);
+    setLocalError('');
+  };
+
+  // Auto-clear error after 5 seconds
+  useState(() => {
+    if (localError) {
+      const timer = setTimeout(() => {
+        setLocalError('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  });
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 text-white">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold">Add New Subtask</h2>
+            <button
+              onClick={() => {
+                resetForm();
+                onClose();
+              }}
+              className="text-white hover:text-gray-200 transition-colors"
+              type="button"
+            >
+              <FontAwesomeIcon icon={faTimes} className="text-xl" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-150px)]">
+          {localError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+              {localError}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Subtask Name <RequiredMark />
+                </label>
+                <input
+                  type="text"
+                  name="taskName"
+                  value={formData.taskName}
+                  onChange={handleInputChange}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter subtask name"
+                  required
+                />
+              </div>
+
+              <div className="hidden">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Team <RequiredMark />
+                </label>
+                <select
+                  name="teamId"
+                  value={formData.teamId}
+                  onChange={handleInputChange}
+                  className="w-full border border-gray-300 rounded-lg px-4 hover:cursor-not-allowed py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                  disabled
+                >
+                  {teams.map(team => (
+                    <option key={team.Id} value={team.Id}>
+                      {team.TeamName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  placeholder="Enter subtask description"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Priority
+                  </label>
+                  <select
+                    name="priority"
+                    value={formData.priority}
+                    onChange={handleInputChange}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    {priorityOptions.map(priority => (
+                      <option key={priority} value={priority}>{priority}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Due Date
+                  </label>
+                  <input
+                    type="date"
+                    name="dueDate"
+                    value={formData.dueDate}
+                    onChange={handleInputChange}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min={new Date().toISOString().split('T')[0]}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  File Attachments
+                </label>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-blue-400 transition-colors">
+                  <input
+                    type="file"
+                    multiple
+                    accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx"
+                    onChange={handleFileChange}
+                    className="w-full text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Supported formats: Images, PDFs, Word documents, Excel files
+                  </p>
+                </div>
+              </div>
+
+              {filePreviews.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Files to Upload ({filePreviews.length})
+                  </label>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    {filePreviews.map((preview, index) => (
+                      <div key={index} className="relative group">
+                        <div className="w-full h-20 bg-gray-100 rounded-lg overflow-hidden">
+                          {formData.files[index].type.startsWith('image/') ? (
+                            <img
+                              src={preview}
+                              alt={`Preview ${index}`}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-blue-50">
+                              <span className="text-xs text-blue-600 font-medium">
+                                {formData.files[index].name.split('.').pop()?.toUpperCase()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(index)}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <FontAwesomeIcon icon={faTimes} />
+                        </button>
+                        <p className="text-xs text-gray-600 mt-1 truncate">
+                          {formData.files[index].name}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  onClose();
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving && <FontAwesomeIcon icon={faSpinner} className="animate-spin" />}
+                {!saving && <FontAwesomeIcon icon={faSave} />}
+                Create Subtask
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
