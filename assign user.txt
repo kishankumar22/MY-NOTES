@@ -1,0 +1,3069 @@
+'use client';
+
+import React, { useEffect, useState, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faEdit,
+  faTrash,
+  faToggleOff,
+  faToggleOn,
+  faPlus,
+  faTimes,
+  faSearch,
+  faFilter,
+  faSave,
+  faSpinner,
+  faUserPlus,
+  faComments,
+  faCheck,
+  faChevronDown,
+  faChevronUp,
+  faUser,
+  faChevronRight,
+  faUserTimes,
+  faLock,
+  faEye,
+} from '@fortawesome/free-solid-svg-icons';
+import { format } from 'date-fns';
+import axiosInstance from '@/app/lib/axios';
+import { useAuth } from '@/app/hooks/useAuth';
+import AddEditTaskModal from './AddEditTaskModal';
+import AddSubtaskModal from './AddSubtaskModal';
+import ChatPanel from './ChatPanel';
+import { TaskReviewModal, TaskReassignmentModal } from './TaskReviewAndReassign';
+
+// All interfaces remain the same...
+interface Team {
+  Id: number;
+  TeamName: string;
+  Description?: string;
+  IsActive: boolean;
+  CreatedOn: string;
+  CreatedBy?: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+}
+
+interface User {
+  Id: number;
+  Name: string;
+  Email: string;
+  RoleId?: number;
+  TeamId: number;
+  IsActive: boolean;
+  Team?: Team;
+}
+
+interface Task {
+  Id: number;
+  TaskName: string;
+  Description?: string;
+  Priority: string;
+  TeamId: number;
+  Status: string;
+  DueDate?: string;
+  CreatedBy?: string;
+  CreatedOn: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+  CompletedDate?: string;
+  IsActive: boolean;
+  ParentTaskId?: number;
+  AssigneeId?: number;
+  Team: Team;
+  SubTasks?: Task[];
+  Assignee?: User;
+}
+
+interface TaskAssignment {
+  Id: number;
+  TaskId: number;
+  UserId: number;
+  Progress: number;
+  Remarks?: string;
+  ReferredTo?: number;
+  AssignedDate: string;
+  CreatedBy: string;
+  User?: User;
+  Task?: Task;
+}
+
+interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+  tasks?: Task[];
+  users?: User[];
+  teams?: Team[];
+  assignments?: TaskAssignment[];
+  assignment?: TaskAssignment;
+  counts?: Record<number, number>;
+}
+
+interface ApiError {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+}
+
+// Delete Assignment Modal
+const DeleteAssignmentModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  assignment: TaskAssignment | null;
+  loading?: boolean;
+}> = ({ isOpen, onClose, onConfirm, assignment, loading = false }) => {
+  if (!isOpen || !assignment) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-sm">
+        <div className="flex justify-between items-center p-2 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">Remove Assignment</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <FontAwesomeIcon icon={faTimes} className="text-sm" />
+          </button>
+        </div>
+        <div className="p-2">
+          <div className="bg-red-50 p-2 rounded mb-2 border border-red-200">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center">
+                <FontAwesomeIcon icon={faTrash} className="text-red-600 text-xs" />
+              </div>
+              <div>
+                <h4 className="font-medium text-sm text-gray-900">Remove user from this task?</h4>
+                <p className="text-xs text-red-600">This action cannot be undone.</p>
+              </div>
+            </div>
+            <div className="text-xs text-gray-700 space-y-1">
+              <p><strong>Task:</strong> {assignment.Task?.TaskName ?? 'Unknown'}</p>
+              <p><strong>User:</strong> {assignment.User?.Name ?? 'Unknown'}</p>
+              {assignment.Remarks && <p><strong>Remarks:</strong> {assignment.Remarks}</p>}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-gray-600 bg-gray-100 rounded text-xs hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 disabled:bg-gray-300 flex items-center gap-1"
+            >
+              {loading ? (
+                <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
+              ) : (
+                <FontAwesomeIcon icon={faTrash} className="text-xs" />
+              )}
+              {loading ? 'Removing...' : 'Remove'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Assignment Modal
+const AssignmentModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  task: Task | null;
+  user: User | null;
+  isReassignment?: boolean;
+  currentAssignee?: User | null;
+}> = ({ isOpen, onClose, onConfirm, task, user, isReassignment = false, currentAssignee }) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    setLoading(true);
+    await onConfirm();
+    setLoading(false);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-sm">
+        <div className="flex justify-between items-center p-2 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">
+            {isReassignment ? 'Change Assignee' : 'Confirm Assignment'}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <FontAwesomeIcon icon={faTimes} className="text-sm" />
+          </button>
+        </div>
+        <div className="p-2">
+          <div className="bg-blue-50 p-2 rounded mb-2">
+            <h4 className="font-medium text-sm text-gray-900">
+              {isReassignment ? 'Change assignee for this task?' : 'Assign this task?'}
+            </h4>
+            <div className="text-xs text-gray-600 space-y-1">
+              <p><strong>Task:</strong> {task?.TaskName ?? 'Unknown'}</p>
+              {isReassignment && currentAssignee && (
+                <p><strong>Current:</strong> {currentAssignee.Name}</p>
+              )}
+              <p><strong>New Assignee:</strong> {user?.Name ?? 'Unknown'}</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-gray-600 bg-gray-100 rounded text-xs hover:bg-gray-200"
+            >
+              No
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={loading}
+              className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 disabled:bg-gray-300"
+            >
+              {loading ? <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-1 text-xs" /> : null}
+              {isReassignment ? 'Change' : 'Yes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Editable Remarks Component
+const EditableRemarks: React.FC<{
+  value: string;
+  onSave: (value: string) => Promise<void>;
+  taskId: number;
+  assignmentId: number;
+}> = ({ value, onSave, taskId, assignmentId }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (editValue === value) {
+      setIsEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(editValue);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Failed to save remarks:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditValue(value);
+    setIsEditing(false);
+  };
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center p-3 z-50">
+        <input
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          className="flex-1 text-xs border border-gray-300 rounded px-1 py-0.5"
+          autoFocus
+          onKeyPress={(e) => e.key === 'Enter' && handleSave()}
+          onKeyDown={(e) => e.key === 'Escape' && handleCancel()}
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="text-green-600 hover:text-green-800 disabled:opacity-50 p-0.5"
+          title="Save"
+        >
+          {saving ? (
+            <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
+          ) : (
+            <FontAwesomeIcon icon={faCheck} className="text-xs" />
+          )}
+        </button>
+        <button
+          onClick={handleCancel}
+          className="text-red-600 hover:text-red-800 p-0.5"
+          title="Cancel"
+        >
+          <FontAwesomeIcon icon={faTimes} className="text-xs" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="text-xs text-gray-600 cursor-pointer hover:bg-gray-100 rounded px-1 py-0.5 truncate max-w-24"
+      onClick={() => setIsEditing(true)}
+      title={value || 'Click to add remarks'}
+    >
+      {value || 'Add remarks'}
+    </div>
+  );
+};
+
+// Main Component
+export default function TaskManagement() {
+  const { user } = useAuth(); // Current logged-in user
+
+  // All state variables
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [addEditModalOpen, setAddEditModalOpen] = useState<boolean>(false);
+  const [addSubtaskModalOpen, setAddSubtaskModalOpen] = useState<boolean>(false);
+  const [editingTask, setEditingTask] = useState<Task | null | undefined>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+
+  // Task Review Modal States
+  const [taskReviewModal, setTaskReviewModal] = useState<{
+    isOpen: boolean;
+    taskName: string;
+    taskId: number | null;
+  }>({
+    isOpen: false,
+    taskName: '',
+    taskId: null
+  });
+
+  const [reassignmentModal, setReassignmentModal] = useState<{
+    isOpen: boolean;
+    task: Task | null;
+  }>({
+    isOpen: false,
+    task: null
+  });
+
+  // Modal states
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    action: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    action: () => {},
+  });
+  
+  const [chatPanel, setChatPanel] = useState<{ isOpen: boolean; taskId: number | null }>({
+    isOpen: false,
+    taskId: null,
+  });
+  
+  const [assigneeDropdown, setAssigneeDropdown] = useState<{
+    isOpen: boolean;
+    taskId: number | null;
+  }>({ isOpen: false, taskId: null });
+  
+  const [assignmentModal, setAssignmentModal] = useState<{
+    isOpen: boolean;
+    task: Task | null;
+    user: User | null;
+    isReassignment: boolean;
+    currentAssignee: User | null;
+  }>({
+    isOpen: false,
+    task: null,
+    user: null,
+    isReassignment: false,
+    currentAssignee: null,
+  });
+  
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    assignment: TaskAssignment | null;
+  }>({
+    isOpen: false,
+    assignment: null,
+  });
+  
+  const [deletingAssignment, setDeletingAssignment] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState<Set<number>>(new Set());
+
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [priorityFilter, setPriorityFilter] = useState<string>('');
+  const [teamFilter, setTeamFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('');
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
+
+  const priorityOptions = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
+  const statusOptions = ['To Do', 'In Progress', 'Completed', 'Forwarded', 'Closed', 'Not Started', 'Reassigned'];
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Review Button Logic
+  const shouldShowReviewButton = (task: Task): boolean => {
+    const isForwarded = task.Status === 'Forwarded';
+    const assignment = assignments.find(a => a.TaskId === task.Id);
+    const isReferredToCurrentUser = assignment?.ReferredTo === user?.id;
+    const isNotEmployee = user?.RoleId !== 4;
+    
+    return isForwarded && isReferredToCurrentUser && isNotEmployee;
+  };
+
+  // Task Review Handler Functions
+  const handleTaskReview = (taskId: number, taskName: string) => {
+    setTaskReviewModal({
+      isOpen: true,
+      taskName,
+      taskId
+    });
+  };
+
+  const handleCompleteTask = async () => {
+    if (!taskReviewModal.taskId) return;
+
+    try {
+      const response = await axiosInstance.put<ApiResponse>('/api/task-assignment', {
+        TaskId: taskReviewModal.taskId,
+        Status: 'Closed'
+      });
+
+      if (response.data?.success) {
+        setSuccess('Task completed successfully!');
+        setTaskReviewModal({ isOpen: false, taskName: '', taskId: null });
+        window.location.reload();
+      } else {
+        setError('Failed to complete task');
+      }
+    } catch (error) {
+      setError('Failed to complete task');
+      console.error('Complete task error:', error);
+    }
+  };
+
+  const handleOpenReassignment = () => {
+    const task = tasks.find(t => t.Id === taskReviewModal.taskId);
+    if (task) {
+      setReassignmentModal({
+        isOpen: true,
+        task: task
+      });
+      setTaskReviewModal({ isOpen: false, taskName: '', taskId: null });
+    }
+  };
+
+  const handleTaskReassignment = async (reassignData: any) => {
+    if (!reassignmentModal.task) return;
+
+    try {
+      await axiosInstance.put<ApiResponse>('/api/task-assignment', {
+        TaskId: reassignmentModal.task.Id,
+        Status: 'Reassigned'
+      });
+
+      const formData = new FormData();
+      formData.append('TaskId', reassignmentModal.task.Id.toString());
+      formData.append('UserId', reassignData.userId);
+      formData.append('Progress', '0');
+      formData.append('AssignedDate', new Date().toISOString());
+
+      const response = await axiosInstance.post<ApiResponse>('/api/task-assignment', formData);
+
+      if (response.data?.success) {
+        if (reassignData.taskName || reassignData.description || reassignData.dueDate) {
+          await axiosInstance.put<ApiResponse>('/api/task', {
+            Id: reassignmentModal.task.Id,
+            TaskName: reassignData.taskName || reassignmentModal.task.TaskName,
+            Description: reassignData.description || reassignmentModal.task.Description,
+            DueDate: reassignData.dueDate || reassignmentModal.task.DueDate,
+            Status: 'Not Started'
+          });
+        }
+
+        setSuccess('Task reassigned successfully!');
+        setReassignmentModal({ isOpen: false, task: null });
+        window.location.reload();
+      } else {
+        setError('Failed to reassign task');
+      }
+    } catch (error) {
+      setError('Failed to reassign task');
+      console.error('Reassign task error:', error);
+    }
+  };
+
+  // Event listeners and data fetching
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setAssigneeDropdown({ isOpen: false, taskId: null });
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (error || success) {
+      const timer = setTimeout(() => {
+        setError('');
+        setSuccess('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, success]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [tasksRes, teamsRes, usersRes, assignmentsRes] = await Promise.all([
+          axiosInstance.get<ApiResponse>('/api/task'),
+          axiosInstance.get<ApiResponse>('/api/team'),
+          axiosInstance.get<ApiResponse>('/api/user'),
+          axiosInstance.get<ApiResponse>('/api/task-assignment'),
+        ]);
+
+        if (tasksRes.data?.success) {
+          const tasksWithTeam = (tasksRes.data.tasks || []).map(task => ({
+            ...task,
+            Team: task.Team || teamsRes.data?.teams?.find(t => t.Id === task.TeamId) || {
+              Id: task.TeamId,
+              TeamName: 'Unknown',
+              IsActive: true,
+              CreatedOn: new Date().toISOString(),
+            },
+          }));
+          setTasks(tasksWithTeam);
+        } else {
+          setError(tasksRes.data?.error || 'Failed to fetch tasks');
+        }
+
+        if (teamsRes.data?.success) setTeams(teamsRes.data.teams?.filter(team => team.IsActive) || []);
+        else setError(teamsRes.data?.error || 'Failed to fetch teams');
+
+        if (usersRes.data?.success) setUsers(usersRes.data.users?.filter(user => user.IsActive) || []);
+        else setError(usersRes.data?.error || 'Failed to fetch users');
+
+        if (assignmentsRes.data?.success) setAssignments(assignmentsRes.data.assignments || []);
+        else setError(assignmentsRes.data?.error || 'Failed to fetch assignments');
+      } catch (err) {
+        const apiError = err as ApiError;
+        setError(apiError.response?.data?.error || apiError.message || 'Failed to fetch data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Handler functions
+  const handleAddTask = () => {
+    setEditingTask(null);
+    setAddEditModalOpen(true);
+  };
+
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setAddEditModalOpen(true);
+  };
+
+  const handleTaskSaved = (savedTask: Task, isEdit: boolean) => {
+    setTasks(prevTasks =>
+      isEdit
+        ? prevTasks.map(t => (t.Id === savedTask.Id ? savedTask : t))
+        : [savedTask, ...prevTasks]
+    );
+    setSuccess(isEdit ? 'Task updated successfully!' : 'Task created successfully!');
+    setAddEditModalOpen(false);
+    setEditingTask(null);
+  };
+
+  const handleSubtaskCreated = (subtask: Task) => {
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        task.Id === selectedTaskId
+          ? { ...task, SubTasks: [...(task.SubTasks || []), subtask] }
+          : task
+      )
+    );
+    setSuccess('Subtask created successfully!');
+    setAddSubtaskModalOpen(false);
+    setSelectedTaskId(null);
+  };
+
+  const handleDeleteTask = (taskId: number, taskName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to delete "${taskName}"? This action cannot be undone.`,
+      action: async () => {
+        try {
+          const response = await axiosInstance.delete<ApiResponse>(`/api/task/${taskId}`);
+          if (response.data?.success) {
+            setTasks(prev => prev.filter(task => task.Id !== taskId));
+            setSuccess('Task deleted successfully');
+          } else {
+            setError(response.data?.error || 'Failed to delete task');
+          }
+        } catch (err) {
+          const apiError = err as ApiError;
+          setError(apiError.response?.data?.error || 'Failed to delete task');
+        }
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleToggleTaskStatus = (id: number, currentStatus: boolean, taskName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: `${currentStatus ? 'Deactivate' : 'Activate'} Task`,
+      message: `Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} "${taskName}"?`,
+      action: async () => {
+        try {
+          const response = await axiosInstance.patch<ApiResponse<Task>>(`/api/task/${id}`);
+
+          if (response.data?.success && response.data.data) {
+            setTasks(prev =>
+              prev.map(t => (t.Id === id ? response.data.data! : t))
+            );
+            setSuccess(response.data.message || 'Task updated successfully');
+          } else {
+            setError(response.data?.error || 'Failed to toggle task status');
+          }
+        } catch (err) {
+          const apiError = err as ApiError;
+          setError(apiError.response?.data?.error || 'Failed to toggle task status');
+        }
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleAssignUser = async () => {
+    if (!assignmentModal.task || !assignmentModal.user) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('TaskId', assignmentModal.task.Id.toString());
+      formData.append('UserId', assignmentModal.user.Id.toString());
+      formData.append('Progress', '0');
+      formData.append('AssignedDate', new Date().toISOString());
+
+      const response = await axiosInstance.post<ApiResponse>('/api/task-assignment', formData);
+
+      if (response.data?.success) {
+        setSuccess(response.data.message || 'Task assigned successfully!');
+        setAssignments(prev => [...prev, response.data.assignment!]);
+        setAssigneeDropdown({ isOpen: false, taskId: null });
+      } else {
+        setError(response.data?.error || 'Failed to assign task');
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.response?.data?.error || 'Failed to assign task');
+    }
+  };
+
+  const handleDeleteAssignment = async () => {
+    if (!deleteModal.assignment) return;
+
+    setDeletingAssignment(true);
+    try {
+      const response = await axiosInstance.delete<ApiResponse>(
+        `/api/task-assignment?id=${deleteModal.assignment.Id}`
+      );
+
+      if (response.data?.success) {
+        setSuccess(response.data.message || 'Assignment removed successfully!');
+        setAssignments(prev => prev.filter(assignment => assignment.Id !== deleteModal.assignment!.Id));
+        setDeleteModal({ isOpen: false, assignment: null });
+      } else {
+        setError(response.data?.error || 'Failed to remove assignment');
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.response?.data?.error || 'Failed to remove assignment');
+    } finally {
+      setDeletingAssignment(false);
+    }
+  };
+
+  const updateRemarks = async (assignmentId: number, remarks: string) => {
+    try {
+      const requestBody = {
+        Id: assignmentId,
+        Remarks: remarks,
+      };
+
+      const response = await axiosInstance.put<ApiResponse>('/api/task-assignment', requestBody, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.data?.success) {
+        setSuccess('Remarks updated!');
+        setAssignments(prev =>
+          prev.map(a => (a.Id === assignmentId ? { ...a, Remarks: remarks } : a))
+        );
+      } else {
+        throw new Error(response.data?.error || 'Failed to update remarks');
+      }
+    } catch (error) {
+      setError('Failed to update remarks');
+      throw error;
+    }
+  };
+
+  // Utility functions
+  const getDueText = (dueDateStr: string) => {
+    const dueDate = new Date(dueDateStr);
+    const today = new Date();
+    dueDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+
+    const diffInMs = dueDate.getTime() - today.getTime();
+    const diffInDays = Math.round(diffInMs / (1000 * 60 * 60 * 24));
+
+    if (diffInDays === 0) return 'Due today';
+    if (diffInDays > 0) return `Due in ${diffInDays} day${diffInDays > 1 ? 's' : ''}`;
+    return `Overdue by ${Math.abs(diffInDays)} day${Math.abs(diffInDays) > 1 ? 's' : ''}`;
+  };
+
+  // ✅ UPDATED: Enhanced filtering logic with proper role hierarchy and exclusions
+  const getTeamUsers = (teamId: number, taskId: number, currentUserRoleId: number): User[] => {
+    if (!user) return []; // No user logged in
+    
+    // Get already assigned user IDs for this specific task
+    const assignedUserIds = new Set(assignments.filter(a => a.TaskId === taskId).map(a => a.UserId));
+    
+    // Start with users from the same team who are active
+    let filteredUsers = users.filter(u => 
+      u.TeamId === teamId && 
+      u.IsActive &&
+      u.Id !== user.id && // ✅ Exclude currently logged-in user
+      !assignedUserIds.has(u.Id) // ✅ Exclude already assigned users
+    );
+
+    // ✅ Apply role-based filtering based on current user's role
+    switch (currentUserRoleId) {
+      case 1: // Admin
+        // Admin can assign to SubAdmin(2), TeamLead(3), Employee(4) - but not other Admins(1)
+        filteredUsers = filteredUsers.filter(u => u.RoleId && u.RoleId >= 2 && u.RoleId <= 4);
+        break;
+      case 2: // SubAdmin
+        // SubAdmin can assign to TeamLead(3), Employee(4)
+        filteredUsers = filteredUsers.filter(u => u.RoleId === 3 || u.RoleId === 4);
+        break;
+      case 3: // TeamLead
+        // TeamLead can assign only to Employee(4)
+        filteredUsers = filteredUsers.filter(u => u.RoleId === 4);
+        break;
+      case 4: // Employee
+        // Employee cannot assign tasks to anyone
+        filteredUsers = [];
+        break;
+      default:
+        filteredUsers = [];
+        break;
+    }
+
+    return filteredUsers;
+  };
+
+  // ✅ Get assigned users for a task (from task assignments, not just task.AssigneeId)
+  const getAssignedUsers = (taskId: number): User[] => {
+    const taskAssignments = assignments.filter(assignment => assignment.TaskId === taskId);
+    return taskAssignments.map(assignment => assignment.User).filter((user): user is User => !!user);
+  };
+
+  const getAssignment = (taskId: number): TaskAssignment | null => {
+    return assignments.find(assignment => assignment.TaskId === taskId) || null;
+  };
+
+  const getTotalAssignedUsersCount = (task: Task): number => {
+    let count = 0;
+    const mainTaskAssignments = assignments.filter(assignment => assignment.TaskId === task.Id);
+    count += mainTaskAssignments.length;
+    if (task.SubTasks && task.SubTasks.length > 0) {
+      task.SubTasks.forEach(subTask => {
+        count += getTotalAssignedUsersCount(subTask);
+      });
+    }
+    return count;
+  };
+
+  const toggleTaskExpansion = (taskId: number) => {
+    setExpandedTasks(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(taskId)) newSet.delete(taskId);
+      else newSet.add(taskId);
+      return newSet;
+    });
+  };
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setPriorityFilter('');
+    setTeamFilter('');
+    setStatusFilter('');
+    setAssigneeFilter('');
+    setDateRange({ start: '', end: '' });
+  };
+
+  const filteredTasks = tasks.filter(task => {
+    const matchesSearch =
+      !searchTerm ||
+      task.TaskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.Description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (task.SubTasks || []).some(
+        sub =>
+          sub.TaskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          sub.Description?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+
+    const matchesPriority = !priorityFilter || task.Priority === priorityFilter;
+    const matchesTeam = !teamFilter || task.TeamId.toString() === teamFilter;
+    const matchesStatus = !statusFilter || task.Status === statusFilter;
+    const matchesAssignee = !assigneeFilter || task.AssigneeId?.toString() === assigneeFilter;
+    const matchesDateRange =
+      !dateRange.start ||
+      !dateRange.end ||
+      (new Date(task.CreatedOn) >= new Date(dateRange.start) &&
+        new Date(task.CreatedOn) <= new Date(dateRange.end));
+
+    return matchesSearch && matchesPriority && matchesTeam && matchesStatus && matchesAssignee && matchesDateRange;
+  });
+
+  // ✅ UPDATED: Enhanced renderTaskRow with improved assignment dropdown
+  const renderTaskRow = (task: Task, isSubTask = false, level = 0, parentTeamUsers?: User[]): React.ReactNode => {
+    const indent = level * 16;
+    const effectiveTeamUsers = isSubTask && parentTeamUsers ? parentTeamUsers : getTeamUsers(task.TeamId, task.Id, user?.RoleId || 0);
+    const assignedUsers = getAssignedUsers(task.Id);
+    const assignment = getAssignment(task.Id);
+    const isAssigned = assignedUsers.length > 0;
+    const hasSubTasks = task.SubTasks && task.SubTasks.length > 0;
+    const isExpanded = expandedTasks.has(task.Id);
+    const totalAssignedCount = getTotalAssignedUsersCount(task);
+
+    return (
+      <React.Fragment key={`task-fragment-${task.Id}`}>
+        <tr
+          key={`task-${task.Id}`}
+          className={`
+            hover:bg-gray-50 transition-colors duration-150
+            ${!task.IsActive ? 'opacity-60 bg-gray-25' : ''}
+            ${isSubTask ? 'bg-blue-50' : ''}
+          `}
+        >
+          {/* Task Name Column */}
+          <td className="px-2 py-1 text-xs" style={{ paddingLeft: `${indent + 8}px` }}>
+            <div className="flex items-center gap-2">
+              {isSubTask && <span className="text-blue-500 text-xs">↳</span>}
+              <div className="flex-1 min-w-0">
+                <div
+                  className={`${
+                    isSubTask ? 'text-xs font-medium text-gray-600' : 'text-xs font-semibold text-gray-600'
+                  } ${!task.IsActive ? 'line-through text-gray-500' : ''}`}
+                >
+                  {task.TaskName}
+                </div>
+                {task.Description && (
+                  <p className="text-xs text-gray-600 truncate max-w-[200px]">{task.Description}</p>
+                )}
+              </div>
+              {!isSubTask && hasSubTasks && (
+                <button
+                  onClick={() => toggleTaskExpansion(task.Id)}
+                  className="px-1 py-0.5 rounded bg-gray-100 hover:bg-gray-200 transition"
+                  title={isExpanded ? 'Hide Subtask' : 'Show Subtask'}
+                >
+                  <FontAwesomeIcon
+                    icon={isExpanded ? faChevronDown : faChevronRight}
+                    className="text-xs text-gray-600"
+                  />
+                </button>
+              )}
+              {!isSubTask && totalAssignedCount > 0 && (
+                <div className="flex items-center px-1 py-0.5 rounded bg-gray-100 text-xs text-gray-700">
+                  <FontAwesomeIcon icon={faUser} className="mr-1 text-xs" />
+                  {totalAssignedCount}
+                </div>
+              )}
+              <button
+                onClick={() => setChatPanel({ isOpen: true, taskId: task.Id })}
+                className="p-1 rounded bg-gray-100 text-blue-600 hover:text-blue-700 hover:bg-blue-50 transition"
+                title="Chat"
+              >
+                <FontAwesomeIcon icon={faComments} className="text-xs" />
+              </button>
+            </div>
+          </td>
+
+          {/* ✅ UPDATED: Assignee Column with Enhanced Dropdown */}
+          <td className="px-2 py-1">
+            <div className="relative" ref={assigneeDropdown.taskId === task.Id ? dropdownRef : null}>
+              <button
+                onClick={() =>
+                  setAssigneeDropdown(
+                    assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen
+                      ? { isOpen: false, taskId: null }
+                      : { isOpen: true, taskId: task.Id }
+                  )
+                }
+                className={`flex items-center gap-1 px-1 py-0.5 rounded transition-colors ${
+                  isAssigned ? 'bg-green-100 hover:bg-green-200' : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                {isAssigned ? (
+                  <>
+                    <div className="w-4 h-4 bg-green-600 rounded-full flex items-center justify-center">
+                      <span className="text-[10px] font-medium text-white">
+                        {assignedUsers[0]?.Name
+                          ? assignedUsers[0].Name.charAt(0).toUpperCase()
+                          : '-'}
+                      </span>
+                    </div>
+                    <div className="text-left">
+                      <div className="text-xs font-medium text-green-800 truncate max-w-16">
+                        {assignedUsers.length === 1 ? assignedUsers[0].Name : `${assignedUsers.length} users`}
+                      </div>
+                    </div>
+                    <FontAwesomeIcon
+                      icon={assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen ? faChevronUp : faChevronDown}
+                      className="text-xs text-green-600"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <FontAwesomeIcon icon={faUserPlus} className="text-xs" />
+                    <span className="text-xs">Assign</span>
+                    <FontAwesomeIcon
+                      icon={assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen ? faChevronUp : faChevronDown}
+                      className="text-xs"
+                    />
+                  </>
+                )}
+              </button>
+              
+              {/* ✅ UPDATED: Enhanced Assignment Dropdown */}
+              {assigneeDropdown.isOpen && assigneeDropdown.taskId === task.Id && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-40 max-w-64">
+                  <div className="p-1">
+                    {/* ✅ Show Currently Assigned Users with Remove Button */}
+                    {assignedUsers.length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-gray-500 mb-1 px-1">Assigned Users</div>
+                        {assignedUsers.map(assignedUser => {
+                          const userAssignment = assignments.find(a => a.TaskId === task.Id && a.UserId === assignedUser.Id);
+                          return (
+                            <div key={`assigned-${assignedUser.Id}`} className="flex items-center justify-between hover:bg-gray-100 rounded p-1">
+                              <div className="flex items-center gap-1">
+                                <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center">
+                                  <span className="text-[10px] font-medium text-green-800">
+                                    {assignedUser.Name.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <div className="font-medium text-xs text-green-800">{assignedUser.Name}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {assignedUser.RoleId === 1 ? 'Admin' : 
+                                     assignedUser.RoleId === 2 ? 'SubAdmin' : 
+                                     assignedUser.RoleId === 3 ? 'TeamLead' : 'Employee'}
+                                  </div>
+                                </div>
+                              </div>
+                              {/* ✅ Remove Button */}
+                              {userAssignment && (
+                                <button
+                                  onClick={() => {
+                                    setDeleteModal({ isOpen: true, assignment: userAssignment });
+                                    setAssigneeDropdown({ isOpen: false, taskId: null });
+                                  }}
+                                  className="p-0.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                  title="Remove Assignment"
+                                >
+                                  <FontAwesomeIcon icon={faUserTimes} className="text-xs" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {effectiveTeamUsers.length > 0 && <div className="border-b my-1"></div>}
+                      </div>
+                    )}
+                    
+                    {/* ✅ Show Available Users for Assignment */}
+                    {effectiveTeamUsers.length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-gray-500 mb-1 px-1">Available Users</div>
+                        {effectiveTeamUsers.map(availableUser => (
+                          <div key={`available-${availableUser.Id}`} className="hover:bg-gray-100 rounded p-1">
+                            <button
+                              onClick={() => {
+                                setAssignmentModal({
+                                  isOpen: true,
+                                  task,
+                                  user: availableUser,
+                                  isReassignment: false,
+                                  currentAssignee: null,
+                                });
+                                setAssigneeDropdown({ isOpen: false, taskId: null });
+                              }}
+                              className="flex items-center gap-1 w-full text-left"
+                            >
+                              <div className="w-4 h-4 bg-blue-100 rounded-full flex items-center justify-center">
+                                <span className="text-[10px] font-medium text-blue-800">
+                                  {availableUser.Name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="font-medium text-xs text-gray-900">{availableUser.Name}</div>
+                                <div className="text-xs text-gray-500">
+                                  {availableUser.RoleId === 1 ? 'Admin' : 
+                                   availableUser.RoleId === 2 ? 'SubAdmin' : 
+                                   availableUser.RoleId === 3 ? 'TeamLead' : 'Employee'}
+                                </div>
+                              </div>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* ✅ Show message when no users available */}
+                    {effectiveTeamUsers.length === 0 && assignedUsers.length === 0 && (
+                      <div className="px-1 py-2 text-xs text-gray-500 text-center">
+                        {user?.RoleId === 4 ? 'Employees cannot assign tasks' : 'No available users'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </td>
+
+          {/* Remarks Column */}
+          <td className="px-2 py-1">
+            {assignment && (
+              <EditableRemarks
+                value={assignment.Remarks || ''}
+                onSave={(value) => updateRemarks(assignment.Id, value)}
+                taskId={task.Id}
+                assignmentId={assignment.Id}
+              />
+            )}
+          </td>
+
+          {/* Due Date Column */}
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.DueDate
+              ? new Date(task.DueDate).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                })
+              : '-'}
+          </td>
+
+          {/* Timeline Column */}
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.DueDate ? getDueText(task.DueDate) : '-'}
+          </td>
+
+          {/* Last Update Column */}
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.ModifiedOn ? (
+              <span
+                className="cursor-pointer"
+                title={`Updated on: ${format(new Date(task.ModifiedOn), 'dd MMM yyyy, hh:mm a')}`}
+              >
+                {format(new Date(task.ModifiedOn), 'dd/MM/yyyy, hh:mm a')}
+              </span>
+            ) : (
+              'Not updated yet'
+            )}
+          </td>
+
+          {/* ✅ Status Column with Review Button */}
+          <td className="px-2 py-1">
+            <div className="flex items-center gap-2">
+              <span
+                className={`
+                  inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium
+                  ${task.Status === 'Completed' ? 'bg-green-100 text-green-800' :
+                    task.Status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                    task.Status === 'To Do' || task.Status === 'Not Started' ? 'bg-gray-100 text-gray-800' :
+                    task.Status === 'Forwarded' ? 'bg-purple-100 text-purple-800' :
+                    task.Status === 'Closed' ? 'bg-red-100 text-red-800' :
+                    task.Status === 'Reassigned' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}
+                `}
+              >
+                {task.Status}
+              </span>
+              
+              {/* Task Review Button */}
+              {shouldShowReviewButton(task) && (
+                <button
+                  onClick={() => handleTaskReview(task.Id, task.TaskName)}
+                  className="p-1 rounded bg-purple-100 text-purple-600 hover:text-purple-700 hover:bg-purple-200 transition-colors"
+                  title="Review Forwarded Task"
+                >
+                  <FontAwesomeIcon icon={faEye} className="text-xs" />
+                </button>
+              )}
+            </div>
+          </td>
+
+          {/* Priority Column */}
+          <td className="px-2 py-1">
+            <span
+              className={`
+                inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium
+                ${task.Priority === 'Critical' ? 'bg-red-100 text-red-800' :
+                  task.Priority === 'Urgent' ? 'bg-orange-100 text-orange-800' :
+                  task.Priority === 'High' ? 'bg-red-100 text-red-800' :
+                  task.Priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-green-100 text-green-800'}
+              `}
+            >
+              {task.Priority}
+            </span>
+          </td>
+
+          {/* Actions Column */}
+          <td className="px-2 py-1">
+            <div className="flex gap-1">
+              <button
+                className="p-1 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50 rounded transition-colors"
+                title="Edit"
+                onClick={() => handleEditTask(task)}
+              >
+                <FontAwesomeIcon icon={faEdit} className="text-xs" />
+              </button>
+              <button
+                className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                title="Delete"
+                onClick={() => handleDeleteTask(task.Id, task.TaskName)}
+              >
+                <FontAwesomeIcon icon={faTrash} className="text-xs" />
+              </button>
+              <button
+                className={`p-1 rounded transition-colors ${
+                  task.IsActive
+                    ? 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                }`}
+                title={task.IsActive ? 'Deactivate' : 'Activate'}
+                onClick={() => handleToggleTaskStatus(task.Id, task.IsActive, task.TaskName)}
+              >
+                <FontAwesomeIcon icon={task.IsActive ? faToggleOn : faToggleOff} className="text-xs" />
+              </button>
+              {!task.ParentTaskId && (
+                <button
+                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                  title="Add Subtask"
+                  onClick={() => {
+                    setSelectedTaskId(task.Id);
+                    setAddSubtaskModalOpen(true);
+                  }}
+                >
+                  <FontAwesomeIcon icon={faPlus} className="text-xs" />
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+        {hasSubTasks && isExpanded && task.SubTasks!.map(subTask => renderTaskRow(subTask, true, level + 1, effectiveTeamUsers))}
+      </React.Fragment>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="flex items-center gap-2 text-blue-600">
+          <FontAwesomeIcon icon={faSpinner} className="animate-spin text-lg" />
+          <span className="text-sm">Loading tasks...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 bg-gray-50 min-h-screen">
+      {/* Header Section */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2 mb-2">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">Task Management</h1>
+            <p className="text-xs text-gray-600">Manage and track all your tasks and assignments</p>
+          </div>
+          <div className="flex gap-2 items-center">
+            <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
+              {filteredTasks.length} tasks | {assignments.length} assignments
+            </span>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-colors ${
+                showFilters ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              <FontAwesomeIcon icon={faFilter} className="text-xs" />
+              Filters
+            </button>
+            <button
+              onClick={handleAddTask}
+              className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <FontAwesomeIcon icon={faPlus} className="text-xs" />
+              Add Task
+            </button>
+          </div>
+        </div>
+
+        {/* Filters Section */}
+        {showFilters && (
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-9 gap-2">
+              <div className="relative lg:col-span-2">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search tasks..."
+                  className="w-full pl-7 pr-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                />
+                <FontAwesomeIcon
+                  icon={faSearch}
+                  className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"
+                />
+              </div>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Priorities</option>
+                {priorityOptions.map(priority => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
+              </select>
+              <select
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Teams</option>
+                {teams.map(team => (
+                  <option key={team.Id} value={team.Id}>{team.TeamName}</option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Status</option>
+                {statusOptions.map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+              <select
+                value={assigneeFilter}
+                onChange={(e) => setAssigneeFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Assignees</option>
+                <option value="unassigned">Unassigned</option>
+                {users.map(user => (
+                  <option key={user.Id} value={user.Id}>{user.Name}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={dateRange.start}
+                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                placeholder="Start date"
+              />
+              <input
+                type="date"
+                value={dateRange.end}
+                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                placeholder="End date"
+              />
+              <button
+                onClick={clearFilters}
+                className="flex items-center justify-center gap-1 px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs"
+              >
+                <FontAwesomeIcon icon={faTimes} className="text-xs" />
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Alert Messages */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-2 flex items-center gap-2 text-xs">
+          <FontAwesomeIcon icon={faTimes} className="text-red-500 text-xs" />
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg mb-2 flex items-center gap-2 text-xs">
+          <FontAwesomeIcon icon={faSave} className="text-green-500 text-xs" />
+          {success}
+        </div>
+      )}
+
+      {/* Tasks Table */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto min-h-[81vh]">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {[
+                  'Task Name',
+                  'Assignee',
+                  'Remarks',
+                  'Due Date',
+                  'Timeline',
+                  'Last Update',
+                  'Status',
+                  'Priority',
+                  'Actions',
+                ].map(header => (
+                  <th
+                    key={header}
+                    className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"
+                  >
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredTasks.length > 0 ? (
+                filteredTasks
+                  .filter(task => !task.ParentTaskId)
+                  .map(task => renderTaskRow(task))
+              ) : (
+                <tr>
+                  <td colSpan={9} className="px-2 py-8 text-center text-gray-500">
+                    <div className="flex flex-col items-center gap-2">
+                      <FontAwesomeIcon icon={faSearch} className="text-2xl text-gray-300" />
+                      <p className="text-sm">No tasks found</p>
+                      <p className="text-xs">Try adjusting your filters or create a new task</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* All Modals */}
+      {addEditModalOpen && (
+        <AddEditTaskModal
+          isOpen={addEditModalOpen}
+          onClose={() => {
+            setAddEditModalOpen(false);
+            setEditingTask(null);
+          }}
+          onTaskSaved={handleTaskSaved}
+          task={editingTask}
+          teams={teams}
+          onError={setError}
+        />
+      )}
+
+      {addSubtaskModalOpen && selectedTaskId && (
+        <AddSubtaskModal
+          isOpen={addSubtaskModalOpen}
+          onClose={() => {
+            setAddSubtaskModalOpen(false);
+            setSelectedTaskId(null);
+          }}
+          onSubtaskSaved={handleSubtaskCreated as (subtask: any) => void}
+          taskId={selectedTaskId}
+          teams={teams}
+          onError={setError}
+        />
+      )}
+
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm p-4 shadow-2xl">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">{confirmModal.title}</h3>
+            <p className="text-xs text-gray-600 mb-4">{confirmModal.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmModal.action}
+                className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-xs"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AssignmentModal
+        isOpen={assignmentModal.isOpen}
+        onClose={() =>
+          setAssignmentModal({
+            isOpen: false,
+            task: null,
+            user: null,
+            isReassignment: false,
+            currentAssignee: null,
+          })
+        }
+        onConfirm={handleAssignUser}
+        task={assignmentModal.task}
+        user={assignmentModal.user}
+        isReassignment={assignmentModal.isReassignment}
+        currentAssignee={assignmentModal.currentAssignee}
+      />
+
+      <DeleteAssignmentModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, assignment: null })}
+        onConfirm={handleDeleteAssignment}
+        assignment={deleteModal.assignment}
+        loading={deletingAssignment}
+      />
+
+      <TaskReviewModal
+        isOpen={taskReviewModal.isOpen}
+        taskName={taskReviewModal.taskName}
+        taskId={taskReviewModal.taskId}
+        onClose={() => setTaskReviewModal({ isOpen: false, taskName: '', taskId: null })}
+        onCompleteTask={handleCompleteTask}
+        onReassignTask={handleOpenReassignment}
+      />
+
+      <TaskReassignmentModal
+        isOpen={reassignmentModal.isOpen}
+        task={reassignmentModal.task}
+        onClose={() => setReassignmentModal({ isOpen: false, task: null })}
+        onReassign={handleTaskReassignment}
+      />
+
+      <ChatPanel
+        isOpen={chatPanel.isOpen}
+        onClose={() => setChatPanel({ isOpen: false, taskId: null })}
+        taskId={chatPanel.taskId}
+        users={users}
+      />
+
+      {chatPanel.isOpen && (
+        <div
+          className="fixed inset-0 bg-black/20 backdrop-blur-[0.87px] bg-opacity-50 backdrop:blur-md z-20"
+          onClick={() => setChatPanel({ isOpen: false, taskId: null })}
+        />
+      )}
+    </div>
+  );
+}
+
+------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+'use client';
+
+import React, { useEffect, useState, useRef } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faEdit,
+  faTrash,
+  faToggleOff,
+  faToggleOn,
+  faPlus,
+  faTimes,
+  faSearch,
+  faFilter,
+  faSave,
+  faSpinner,
+  faUserPlus,
+  faComments,
+  faCheck,
+  faChevronDown,
+  faChevronUp,
+  faUser,
+  faChevronRight,
+  faUserTimes,
+  faLock,
+  faEye,
+} from '@fortawesome/free-solid-svg-icons';
+import { format } from 'date-fns';
+import axiosInstance from '@/app/lib/axios';
+import { useAuth } from '@/app/hooks/useAuth';
+import AddEditTaskModal from './AddEditTaskModal';
+import AddSubtaskModal from './AddSubtaskModal';
+import ChatPanel from './ChatPanel';
+import { TaskReviewModal, TaskReassignmentModal } from './TaskReviewAndReassign';
+
+// ✅ FIXED: Consistent interfaces with proper types
+interface Team {
+  Id: number;
+  TeamName: string;
+  Description?: string;
+  IsActive: boolean;
+  CreatedOn: string;
+  CreatedBy?: string;
+  ModifiedBy?: string;
+  ModifiedOn?: string;
+}
+
+interface User {
+  Id: number;
+  Name: string;
+  Email: string;
+  RoleId?: number;
+  TeamId: number;
+  IsActive: boolean;
+  Team?: Team;
+}
+
+// ✅ FIXED: Consistent Task interface
+interface Task {
+  Id: number;
+  TaskName: string;
+  Description?: string;
+  Priority: string;
+  TeamId: number;
+  Status: string;
+  DueDate?: string;
+  CreatedBy?: number; // ✅ Consistent as number
+  CreatedOn: string;
+  ModifiedBy?: number; // ✅ Consistent as number
+  ModifiedOn?: string;
+  CompletedDate?: string;
+  IsActive: boolean;
+  ParentTaskId?: number;
+  AssigneeId?: number;
+  Team: Team;
+  SubTasks?: Task[];
+  Assignee?: User;
+  CreatedByUser?: User;
+  ModifiedByUser?: User;
+}
+
+interface TaskAssignment {
+  Id: number;
+  TaskId: number;
+  UserId: number;
+  Progress: number;
+  Remarks?: string;
+  ReferredTo?: number;
+  AssignedDate: string;
+  CreatedBy: string;
+  User?: User;
+  Task?: Task;
+}
+
+interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+  tasks?: Task[];
+  users?: User[];
+  teams?: Team[];
+  assignments?: TaskAssignment[];
+  assignment?: TaskAssignment;
+  counts?: Record<number, number>;
+}
+
+interface ApiError {
+  response?: {
+    data?: {
+      error?: string;
+      message?: string;
+    };
+  };
+  message?: string;
+}
+
+// Delete Assignment Modal
+const DeleteAssignmentModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  assignment: TaskAssignment | null;
+  loading?: boolean;
+}> = ({ isOpen, onClose, onConfirm, assignment, loading = false }) => {
+  if (!isOpen || !assignment) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-sm">
+        <div className="flex justify-between items-center p-2 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">Remove Assignment</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <FontAwesomeIcon icon={faTimes} className="text-sm" />
+          </button>
+        </div>
+        <div className="p-2">
+          <div className="bg-red-50 p-2 rounded mb-2 border border-red-200">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center">
+                <FontAwesomeIcon icon={faTrash} className="text-red-600 text-xs" />
+              </div>
+              <div>
+                <h4 className="font-medium text-sm text-gray-900">Remove user from this task?</h4>
+                <p className="text-xs text-red-600">This action cannot be undone.</p>
+              </div>
+            </div>
+            <div className="text-xs text-gray-700 space-y-1">
+              <p><strong>Task:</strong> {assignment.Task?.TaskName ?? 'Unknown'}</p>
+              <p><strong>User:</strong> {assignment.User?.Name ?? 'Unknown'}</p>
+              {assignment.Remarks && <p><strong>Remarks:</strong> {assignment.Remarks}</p>}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-gray-600 bg-gray-100 rounded text-xs hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 disabled:bg-gray-300 flex items-center gap-1"
+            >
+              {loading ? (
+                <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
+              ) : (
+                <FontAwesomeIcon icon={faTrash} className="text-xs" />
+              )}
+              {loading ? 'Removing...' : 'Remove'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Assignment Modal
+const AssignmentModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  task: Task | null;
+  user: User | null;
+  isReassignment?: boolean;
+  currentAssignee?: User | null;
+}> = ({ isOpen, onClose, onConfirm, task, user, isReassignment = false, currentAssignee }) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    setLoading(true);
+    await onConfirm();
+    setLoading(false);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+      <div className="bg-white rounded-lg w-full max-w-sm">
+        <div className="flex justify-between items-center p-2 border-b">
+          <h3 className="text-sm font-semibold text-gray-900">
+            {isReassignment ? 'Change Assignee' : 'Confirm Assignment'}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <FontAwesomeIcon icon={faTimes} className="text-sm" />
+          </button>
+        </div>
+        <div className="p-2">
+          <div className="bg-blue-50 p-2 rounded mb-2">
+            <h4 className="font-medium text-sm text-gray-900">
+              {isReassignment ? 'Change assignee for this task?' : 'Assign this task?'}
+            </h4>
+            <div className="text-xs text-gray-600 space-y-1">
+              <p><strong>Task:</strong> {task?.TaskName ?? 'Unknown'}</p>
+              {isReassignment && currentAssignee && (
+                <p><strong>Current:</strong> {currentAssignee.Name}</p>
+              )}
+              <p><strong>New Assignee:</strong> {user?.Name ?? 'Unknown'}</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-gray-600 bg-gray-100 rounded text-xs hover:bg-gray-200"
+            >
+              No
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={loading}
+              className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600 disabled:bg-gray-300"
+            >
+              {loading ? <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-1 text-xs" /> : null}
+              {isReassignment ? 'Change' : 'Yes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Editable Remarks Component
+const EditableRemarks: React.FC<{
+  value: string;
+  onSave: (value: string) => Promise<void>;
+  taskId: number;
+  assignmentId: number;
+}> = ({ value, onSave, taskId, assignmentId }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (editValue === value) {
+      setIsEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(editValue);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Failed to save remarks:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditValue(value);
+    setIsEditing(false);
+  };
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center p-3 z-50">
+        <input
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          className="flex-1 text-xs border border-gray-300 rounded px-1 py-0.5"
+          autoFocus
+          onKeyPress={(e) => e.key === 'Enter' && handleSave()}
+          onKeyDown={(e) => e.key === 'Escape' && handleCancel()}
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="text-green-600 hover:text-green-800 disabled:opacity-50 p-0.5"
+          title="Save"
+        >
+          {saving ? (
+            <FontAwesomeIcon icon={faSpinner} className="animate-spin text-xs" />
+          ) : (
+            <FontAwesomeIcon icon={faCheck} className="text-xs" />
+          )}
+        </button>
+        <button
+          onClick={handleCancel}
+          className="text-red-600 hover:text-red-800 p-0.5"
+          title="Cancel"
+        >
+          <FontAwesomeIcon icon={faTimes} className="text-xs" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="text-xs text-gray-600 cursor-pointer hover:bg-gray-100 rounded px-1 py-0.5 truncate max-w-24"
+      onClick={() => setIsEditing(true)}
+      title={value || 'Click to add remarks'}
+    >
+      {value || 'Add remarks'}
+    </div>
+  );
+};
+
+// Main Component
+export default function TaskManagement() {
+  const { user } = useAuth();
+
+  // All state variables
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [addEditModalOpen, setAddEditModalOpen] = useState<boolean>(false);
+  const [addSubtaskModalOpen, setAddSubtaskModalOpen] = useState<boolean>(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null); // ✅ FIXED: Removed undefined
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+
+  // Task Review Modal States
+  const [taskReviewModal, setTaskReviewModal] = useState<{
+    isOpen: boolean;
+    taskName: string;
+    taskId: number | null;
+  }>({
+    isOpen: false,
+    taskName: '',
+    taskId: null
+  });
+
+  const [reassignmentModal, setReassignmentModal] = useState<{
+    isOpen: boolean;
+    task: Task | null;
+  }>({
+    isOpen: false,
+    task: null
+  });
+
+  // Modal states
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    action: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    action: () => {},
+  });
+  
+  const [chatPanel, setChatPanel] = useState<{ isOpen: boolean; taskId: number | null }>({
+    isOpen: false,
+    taskId: null,
+  });
+  
+  const [assigneeDropdown, setAssigneeDropdown] = useState<{
+    isOpen: boolean;
+    taskId: number | null;
+  }>({ isOpen: false, taskId: null });
+  
+  const [assignmentModal, setAssignmentModal] = useState<{
+    isOpen: boolean;
+    task: Task | null;
+    user: User | null;
+    isReassignment: boolean;
+    currentAssignee: User | null;
+  }>({
+    isOpen: false,
+    task: null,
+    user: null,
+    isReassignment: false,
+    currentAssignee: null,
+  });
+  
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    assignment: TaskAssignment | null;
+  }>({
+    isOpen: false,
+    assignment: null,
+  });
+  
+  const [deletingAssignment, setDeletingAssignment] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState<Set<number>>(new Set());
+
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [priorityFilter, setPriorityFilter] = useState<string>('');
+  const [teamFilter, setTeamFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>('');
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
+
+  const priorityOptions = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
+  const statusOptions = ['To Do', 'In Progress', 'Completed', 'Forwarded', 'Closed', 'Not Started', 'Reassigned'];
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // ✅ FIXED: Role-based task filtering function with proper type checking
+  const canViewTask = (task: Task): boolean => {
+    if (!user || typeof task.CreatedBy !== 'number') return false;
+
+    // Find the user who created this task
+    const taskCreator = users.find(u => u.Id === task.CreatedBy);
+    if (!taskCreator) return false;
+
+    // Current user's role
+    const currentUserRole = user.RoleId;
+    const creatorRole = taskCreator.RoleId;
+
+    console.log('🔍 Task Filter Debug:', {
+      taskId: task.Id,
+      taskName: task.TaskName,
+      taskCreatedBy: task.CreatedBy,
+      taskCreator: taskCreator.Name,
+      creatorRole,
+      currentUserId: user.id,
+      currentUserRole,
+    });
+
+    // Role-based visibility rules
+    switch (currentUserRole) {
+      case 1: // Admin
+        // Admin can see tasks created by SubAdmin(2), TeamLead(3), Employee(4)
+        // Admin can also see their own tasks
+        return task.CreatedBy === user.id || (creatorRole && creatorRole >= 2 && creatorRole <= 4);
+      
+      case 2: // SubAdmin
+        // SubAdmin can see tasks created by TeamLead(3), Employee(4) 
+        // SubAdmin can also see their own tasks
+        return task.CreatedBy === user.id || (creatorRole === 3 || creatorRole === 4);
+      
+      case 3: // TeamLead
+        // TeamLead can see tasks created by Employee(4)
+        // TeamLead can also see their own tasks
+        return task.CreatedBy === user.id || creatorRole === 4;
+      
+      case 4: // Employee
+        // Employee can only see their own tasks
+        return task.CreatedBy === user.id;
+      
+      default:
+        return false;
+    }
+  };
+
+  // Review Button Logic
+  const shouldShowReviewButton = (task: Task): boolean => {
+    const isForwarded = task.Status === 'Forwarded';
+    const assignment = assignments.find(a => a.TaskId === task.Id);
+    const isReferredToCurrentUser = assignment?.ReferredTo === user?.id;
+    const isNotEmployee = user?.RoleId !== 4;
+    
+    return isForwarded && isReferredToCurrentUser && isNotEmployee;
+  };
+
+  // Task Review Handler Functions
+  const handleTaskReview = (taskId: number, taskName: string) => {
+    setTaskReviewModal({
+      isOpen: true,
+      taskName,
+      taskId
+    });
+  };
+
+  const handleCompleteTask = async () => {
+    if (!taskReviewModal.taskId) return;
+
+    try {
+      const response = await axiosInstance.put<ApiResponse>('/api/task-assignment', {
+        TaskId: taskReviewModal.taskId,
+        Status: 'Closed'
+      });
+
+      if (response.data?.success) {
+        setSuccess('Task completed successfully!');
+        setTaskReviewModal({ isOpen: false, taskName: '', taskId: null });
+        window.location.reload();
+      } else {
+        setError('Failed to complete task');
+      }
+    } catch (error) {
+      setError('Failed to complete task');
+      console.error('Complete task error:', error);
+    }
+  };
+
+  const handleOpenReassignment = () => {
+    const task = tasks.find(t => t.Id === taskReviewModal.taskId);
+    if (task) {
+      setReassignmentModal({
+        isOpen: true,
+        task: task
+      });
+      setTaskReviewModal({ isOpen: false, taskName: '', taskId: null });
+    }
+  };
+
+  const handleTaskReassignment = async (reassignData: any) => {
+    if (!reassignmentModal.task) return;
+
+    try {
+      await axiosInstance.put<ApiResponse>('/api/task-assignment', {
+        TaskId: reassignmentModal.task.Id,
+        Status: 'Reassigned'
+      });
+
+      const formData = new FormData();
+      formData.append('TaskId', reassignmentModal.task.Id.toString());
+      formData.append('UserId', reassignData.userId);
+      formData.append('Progress', '0');
+      formData.append('AssignedDate', new Date().toISOString());
+
+      const response = await axiosInstance.post<ApiResponse>('/api/task-assignment', formData);
+
+      if (response.data?.success) {
+        if (reassignData.taskName || reassignData.description || reassignData.dueDate) {
+          await axiosInstance.put<ApiResponse>('/api/task', {
+            Id: reassignmentModal.task.Id,
+            TaskName: reassignData.taskName || reassignmentModal.task.TaskName,
+            Description: reassignData.description || reassignmentModal.task.Description,
+            DueDate: reassignData.dueDate || reassignmentModal.task.DueDate,
+            Status: 'Not Started'
+          });
+        }
+
+        setSuccess('Task reassigned successfully!');
+        setReassignmentModal({ isOpen: false, task: null });
+        window.location.reload();
+      } else {
+        setError('Failed to reassign task');
+      }
+    } catch (error) {
+      setError('Failed to reassign task');
+      console.error('Reassign task error:', error);
+    }
+  };
+
+  // Event listeners and data fetching
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setAssigneeDropdown({ isOpen: false, taskId: null });
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (error || success) {
+      const timer = setTimeout(() => {
+        setError('');
+        setSuccess('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, success]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [tasksRes, teamsRes, usersRes, assignmentsRes] = await Promise.all([
+          axiosInstance.get<ApiResponse>('/api/task'),
+          axiosInstance.get<ApiResponse>('/api/team'),
+          axiosInstance.get<ApiResponse>('/api/user'),
+          axiosInstance.get<ApiResponse>('/api/task-assignment'),
+        ]);
+
+        if (tasksRes.data?.success) {
+          const tasksWithTeam = (tasksRes.data.tasks || []).map(task => ({
+            ...task,
+            // ✅ FIXED: Ensure CreatedBy and ModifiedBy are numbers
+            CreatedBy: typeof task.CreatedBy === 'string' ? parseInt(task.CreatedBy) : task.CreatedBy,
+            ModifiedBy: typeof task.ModifiedBy === 'string' ? parseInt(task.ModifiedBy) : task.ModifiedBy,
+            Team: task.Team || teamsRes.data?.teams?.find(t => t.Id === task.TeamId) || {
+              Id: task.TeamId,
+              TeamName: 'Unknown',
+              IsActive: true,
+              CreatedOn: new Date().toISOString(),
+            },
+          }));
+          setTasks(tasksWithTeam);
+        } else {
+          setError(tasksRes.data?.error || 'Failed to fetch tasks');
+        }
+
+        if (teamsRes.data?.success) setTeams(teamsRes.data.teams?.filter(team => team.IsActive) || []);
+        else setError(teamsRes.data?.error || 'Failed to fetch teams');
+
+        if (usersRes.data?.success) setUsers(usersRes.data.users?.filter(user => user.IsActive) || []);
+        else setError(usersRes.data?.error || 'Failed to fetch users');
+
+        if (assignmentsRes.data?.success) setAssignments(assignmentsRes.data.assignments || []);
+        else setError(assignmentsRes.data?.error || 'Failed to fetch assignments');
+      } catch (err) {
+        const apiError = err as ApiError;
+        setError(apiError.response?.data?.error || apiError.message || 'Failed to fetch data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Handler functions
+  const handleAddTask = () => {
+    setEditingTask(null);
+    setAddEditModalOpen(true);
+  };
+
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setAddEditModalOpen(true);
+  };
+
+  // ✅ FIXED: Handler function with proper types
+  const handleTaskSaved = (savedTask: Task, isEdit: boolean) => {
+    setTasks(prevTasks =>
+      isEdit
+        ? prevTasks.map(t => (t.Id === savedTask.Id ? savedTask : t))
+        : [savedTask, ...prevTasks]
+    );
+    setSuccess(isEdit ? 'Task updated successfully!' : 'Task created successfully!');
+    setAddEditModalOpen(false);
+    setEditingTask(null);
+  };
+
+  const handleSubtaskCreated = (subtask: Task) => {
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        task.Id === selectedTaskId
+          ? { ...task, SubTasks: [...(task.SubTasks || []), subtask] }
+          : task
+      )
+    );
+    setSuccess('Subtask created successfully!');
+    setAddSubtaskModalOpen(false);
+    setSelectedTaskId(null);
+  };
+
+  const handleDeleteTask = (taskId: number, taskName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Task',
+      message: `Are you sure you want to delete "${taskName}"? This action cannot be undone.`,
+      action: async () => {
+        try {
+          const response = await axiosInstance.delete<ApiResponse>(`/api/task/${taskId}`);
+          if (response.data?.success) {
+            setTasks(prev => prev.filter(task => task.Id !== taskId));
+            setSuccess('Task deleted successfully');
+          } else {
+            setError(response.data?.error || 'Failed to delete task');
+          }
+        } catch (err) {
+          const apiError = err as ApiError;
+          setError(apiError.response?.data?.error || 'Failed to delete task');
+        }
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleToggleTaskStatus = (id: number, currentStatus: boolean, taskName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: `${currentStatus ? 'Deactivate' : 'Activate'} Task`,
+      message: `Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} "${taskName}"?`,
+      action: async () => {
+        try {
+          const response = await axiosInstance.patch<ApiResponse<Task>>(`/api/task/${id}`);
+
+          if (response.data?.success && response.data.data) {
+            setTasks(prev =>
+              prev.map(t => (t.Id === id ? response.data.data! : t))
+            );
+            setSuccess(response.data.message || 'Task updated successfully');
+          } else {
+            setError(response.data?.error || 'Failed to toggle task status');
+          }
+        } catch (err) {
+          const apiError = err as ApiError;
+          setError(apiError.response?.data?.error || 'Failed to toggle task status');
+        }
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleAssignUser = async () => {
+    if (!assignmentModal.task || !assignmentModal.user) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('TaskId', assignmentModal.task.Id.toString());
+      formData.append('UserId', assignmentModal.user.Id.toString());
+      formData.append('Progress', '0');
+      formData.append('AssignedDate', new Date().toISOString());
+
+      const response = await axiosInstance.post<ApiResponse>('/api/task-assignment', formData);
+
+      if (response.data?.success) {
+        setSuccess(response.data.message || 'Task assigned successfully!');
+        setAssignments(prev => [...prev, response.data.assignment!]);
+        setAssigneeDropdown({ isOpen: false, taskId: null });
+      } else {
+        setError(response.data?.error || 'Failed to assign task');
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.response?.data?.error || 'Failed to assign task');
+    }
+  };
+
+  const handleDeleteAssignment = async () => {
+    if (!deleteModal.assignment) return;
+
+    setDeletingAssignment(true);
+    try {
+      const response = await axiosInstance.delete<ApiResponse>(
+        `/api/task-assignment?id=${deleteModal.assignment.Id}`
+      );
+
+      if (response.data?.success) {
+        setSuccess(response.data.message || 'Assignment removed successfully!');
+        setAssignments(prev => prev.filter(assignment => assignment.Id !== deleteModal.assignment!.Id));
+        setDeleteModal({ isOpen: false, assignment: null });
+      } else {
+        setError(response.data?.error || 'Failed to remove assignment');
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.response?.data?.error || 'Failed to remove assignment');
+    } finally {
+      setDeletingAssignment(false);
+    }
+  };
+
+  const updateRemarks = async (assignmentId: number, remarks: string) => {
+    try {
+      const requestBody = {
+        Id: assignmentId,
+        Remarks: remarks,
+      };
+
+      const response = await axiosInstance.put<ApiResponse>('/api/task-assignment', requestBody, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.data?.success) {
+        setSuccess('Remarks updated!');
+        setAssignments(prev =>
+          prev.map(a => (a.Id === assignmentId ? { ...a, Remarks: remarks } : a))
+        );
+      } else {
+        throw new Error(response.data?.error || 'Failed to update remarks');
+      }
+    } catch (error) {
+      setError('Failed to update remarks');
+      throw error;
+    }
+  };
+
+  // Utility functions
+  const getDueText = (dueDateStr: string) => {
+    const dueDate = new Date(dueDateStr);
+    const today = new Date();
+    dueDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+
+    const diffInMs = dueDate.getTime() - today.getTime();
+    const diffInDays = Math.round(diffInMs / (1000 * 60 * 60 * 24));
+
+    if (diffInDays === 0) return 'Due today';
+    if (diffInDays > 0) return `Due in ${diffInDays} day${diffInDays > 1 ? 's' : ''}`;
+    return `Overdue by ${Math.abs(diffInDays)} day${Math.abs(diffInDays) > 1 ? 's' : ''}`;
+  };
+
+  const getTeamUsers = (teamId: number, taskId: number, currentUserRoleId: number): User[] => {
+    if (!user) return [];
+    
+    const assignedUserIds = new Set(assignments.filter(a => a.TaskId === taskId).map(a => a.UserId));
+    
+    let filteredUsers = users.filter(u => 
+      u.TeamId === teamId && 
+      u.IsActive &&
+      u.Id !== user.id &&
+      !assignedUserIds.has(u.Id)
+    );
+
+    switch (currentUserRoleId) {
+      case 1: // Admin
+        filteredUsers = filteredUsers.filter(u => u.RoleId && u.RoleId >= 2 && u.RoleId <= 4);
+        break;
+      case 2: // SubAdmin
+        filteredUsers = filteredUsers.filter(u => u.RoleId === 3 || u.RoleId === 4);
+        break;
+      case 3: // TeamLead
+        filteredUsers = filteredUsers.filter(u => u.RoleId === 4);
+        break;
+      case 4: // Employee
+        filteredUsers = [];
+        break;
+      default:
+        filteredUsers = [];
+        break;
+    }
+
+    return filteredUsers;
+  };
+
+  const getAssignedUsers = (taskId: number): User[] => {
+    const taskAssignments = assignments.filter(assignment => assignment.TaskId === taskId);
+    return taskAssignments.map(assignment => assignment.User).filter((user): user is User => !!user);
+  };
+
+  const getAssignment = (taskId: number): TaskAssignment | null => {
+    return assignments.find(assignment => assignment.TaskId === taskId) || null;
+  };
+
+  const getTotalAssignedUsersCount = (task: Task): number => {
+    let count = 0;
+    const mainTaskAssignments = assignments.filter(assignment => assignment.TaskId === task.Id);
+    count += mainTaskAssignments.length;
+    if (task.SubTasks && task.SubTasks.length > 0) {
+      task.SubTasks.forEach(subTask => {
+        count += getTotalAssignedUsersCount(subTask);
+      });
+    }
+    return count;
+  };
+
+  const toggleTaskExpansion = (taskId: number) => {
+    setExpandedTasks(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(taskId)) newSet.delete(taskId);
+      else newSet.add(taskId);
+      return newSet;
+    });
+  };
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setPriorityFilter('');
+    setTeamFilter('');
+    setStatusFilter('');
+    setAssigneeFilter('');
+    setDateRange({ start: '', end: '' });
+  };
+
+  // Enhanced filtering with role-based visibility
+  const filteredTasks = tasks.filter(task => {
+    // First apply role-based filtering
+    if (!canViewTask(task)) {
+      return false;
+    }
+
+    // Then apply search and other filters
+    const matchesSearch =
+      !searchTerm ||
+      task.TaskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.Description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (task.SubTasks || []).some(
+        sub =>
+          sub.TaskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          sub.Description?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+
+    const matchesPriority = !priorityFilter || task.Priority === priorityFilter;
+    const matchesTeam = !teamFilter || task.TeamId.toString() === teamFilter;
+    const matchesStatus = !statusFilter || task.Status === statusFilter;
+    const matchesAssignee = !assigneeFilter || task.AssigneeId?.toString() === assigneeFilter;
+    const matchesDateRange =
+      !dateRange.start ||
+      !dateRange.end ||
+      (new Date(task.CreatedOn) >= new Date(dateRange.start) &&
+        new Date(task.CreatedOn) <= new Date(dateRange.end));
+
+    return matchesSearch && matchesPriority && matchesTeam && matchesStatus && matchesAssignee && matchesDateRange;
+  });
+
+  // Enhanced renderTaskRow with improved assignment dropdown
+  const renderTaskRow = (task: Task, isSubTask = false, level = 0, parentTeamUsers?: User[]): React.ReactNode => {
+    const indent = level * 16;
+    const effectiveTeamUsers = isSubTask && parentTeamUsers ? parentTeamUsers : getTeamUsers(task.TeamId, task.Id, user?.RoleId || 0);
+    const assignedUsers = getAssignedUsers(task.Id);
+    const assignment = getAssignment(task.Id);
+    const isAssigned = assignedUsers.length > 0;
+    const hasSubTasks = task.SubTasks && task.SubTasks.length > 0;
+    const isExpanded = expandedTasks.has(task.Id);
+    const totalAssignedCount = getTotalAssignedUsersCount(task);
+
+    // Get task creator info for display
+    const taskCreator = users.find(u => u.Id === task.CreatedBy);
+
+    return (
+      <React.Fragment key={`task-fragment-${task.Id}`}>
+        <tr
+          key={`task-${task.Id}`}
+          className={`
+            hover:bg-gray-50 transition-colors duration-150
+            ${!task.IsActive ? 'opacity-60 bg-gray-25' : ''}
+            ${isSubTask ? 'bg-blue-50' : ''}
+          `}
+        >
+          {/* Task Name Column */}
+          <td className="px-2 py-1 text-xs" style={{ paddingLeft: `${indent + 8}px` }}>
+            <div className="flex items-center gap-2">
+              {isSubTask && <span className="text-blue-500 text-xs">↳</span>}
+              <div className="flex-1 min-w-0">
+                <div
+                  className={`${
+                    isSubTask ? 'text-xs font-medium text-gray-600' : 'text-xs font-semibold text-gray-600'
+                  } ${!task.IsActive ? 'line-through text-gray-500' : ''}`}
+                >
+                  {task.TaskName}
+                </div>
+                {task.Description && (
+                  <p className="text-xs text-gray-600 truncate max-w-[200px]">{task.Description}</p>
+                )}
+                {/* Show task creator */}
+                {taskCreator && (
+                  <p className="text-xs text-gray-500">
+                    Created by: {taskCreator.Name} ({taskCreator.RoleId === 1 ? 'Admin' : taskCreator.RoleId === 2 ? 'SubAdmin' : taskCreator.RoleId === 3 ? 'TeamLead' : 'Employee'})
+                  </p>
+                )}
+              </div>
+              {!isSubTask && hasSubTasks && (
+                <button
+                  onClick={() => toggleTaskExpansion(task.Id)}
+                  className="px-1 py-0.5 rounded bg-gray-100 hover:bg-gray-200 transition"
+                  title={isExpanded ? 'Hide Subtask' : 'Show Subtask'}
+                >
+                  <FontAwesomeIcon
+                    icon={isExpanded ? faChevronDown : faChevronRight}
+                    className="text-xs text-gray-600"
+                  />
+                </button>
+              )}
+              {!isSubTask && totalAssignedCount > 0 && (
+                <div className="flex items-center px-1 py-0.5 rounded bg-gray-100 text-xs text-gray-700">
+                  <FontAwesomeIcon icon={faUser} className="mr-1 text-xs" />
+                  {totalAssignedCount}
+                </div>
+              )}
+              <button
+                onClick={() => setChatPanel({ isOpen: true, taskId: task.Id })}
+                className="p-1 rounded bg-gray-100 text-blue-600 hover:text-blue-700 hover:bg-blue-50 transition"
+                title="Chat"
+              >
+                <FontAwesomeIcon icon={faComments} className="text-xs" />
+              </button>
+            </div>
+          </td>
+
+          {/* Assignee Column */}
+          <td className="px-2 py-1">
+            <div className="relative" ref={assigneeDropdown.taskId === task.Id ? dropdownRef : null}>
+              <button
+                onClick={() =>
+                  setAssigneeDropdown(
+                    assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen
+                      ? { isOpen: false, taskId: null }
+                      : { isOpen: true, taskId: task.Id }
+                  )
+                }
+                className={`flex items-center gap-1 px-1 py-0.5 rounded transition-colors ${
+                  isAssigned ? 'bg-green-100 hover:bg-green-200' : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                {isAssigned ? (
+                  <>
+                    <div className="w-4 h-4 bg-green-600 rounded-full flex items-center justify-center">
+                      <span className="text-[10px] font-medium text-white">
+                        {assignedUsers[0]?.Name
+                          ? assignedUsers.Name.charAt(0).toUpperCase()
+                          : '-'}
+                      </span>
+                    </div>
+                    <div className="text-left">
+                      <div className="text-xs font-medium text-green-800 truncate max-w-16">
+                        {assignedUsers.length === 1 ? assignedUsers[0].Name : `${assignedUsers.length} users`}
+                      </div>
+                    </div>
+                    <FontAwesomeIcon
+                      icon={assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen ? faChevronUp : faChevronDown}
+                      className="text-xs text-green-600"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <FontAwesomeIcon icon={faUserPlus} className="text-xs" />
+                    <span className="text-xs">Assign</span>
+                    <FontAwesomeIcon
+                      icon={assigneeDropdown.taskId === task.Id && assigneeDropdown.isOpen ? faChevronUp : faChevronDown}
+                      className="text-xs"
+                    />
+                  </>
+                )}
+              </button>
+              
+              {/* Enhanced Assignment Dropdown */}
+              {assigneeDropdown.isOpen && assigneeDropdown.taskId === task.Id && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-40 max-w-64">
+                  <div className="p-1">
+                    {/* Show Currently Assigned Users with Remove Button */}
+                    {assignedUsers.length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-gray-500 mb-1 px-1">Assigned Users</div>
+                        {assignedUsers.map(assignedUser => {
+                          const userAssignment = assignments.find(a => a.TaskId === task.Id && a.UserId === assignedUser.Id);
+                          return (
+                            <div key={`assigned-${assignedUser.Id}`} className="flex items-center justify-between hover:bg-gray-100 rounded p-1">
+                              <div className="flex items-center gap-1">
+                                <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center">
+                                  <span className="text-[10px] font-medium text-green-800">
+                                    {assignedUser.Name.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <div className="font-medium text-xs text-green-800">{assignedUser.Name}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {assignedUser.RoleId === 1 ? 'Admin' : 
+                                     assignedUser.RoleId === 2 ? 'SubAdmin' : 
+                                     assignedUser.RoleId === 3 ? 'TeamLead' : 'Employee'}
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Remove Button */}
+                              {userAssignment && (
+                                <button
+                                  onClick={() => {
+                                    setDeleteModal({ isOpen: true, assignment: userAssignment });
+                                    setAssigneeDropdown({ isOpen: false, taskId: null });
+                                  }}
+                                  className="p-0.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                  title="Remove Assignment"
+                                >
+                                  <FontAwesomeIcon icon={faUserTimes} className="text-xs" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {effectiveTeamUsers.length > 0 && <div className="border-b my-1"></div>}
+                      </div>
+                    )}
+                    
+                    {/* Show Available Users for Assignment */}
+                    {effectiveTeamUsers.length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-gray-500 mb-1 px-1">Available Users</div>
+                        {effectiveTeamUsers.map(availableUser => (
+                          <div key={`available-${availableUser.Id}`} className="hover:bg-gray-100 rounded p-1">
+                            <button
+                              onClick={() => {
+                                setAssignmentModal({
+                                  isOpen: true,
+                                  task,
+                                  user: availableUser,
+                                  isReassignment: false,
+                                  currentAssignee: null,
+                                });
+                                setAssigneeDropdown({ isOpen: false, taskId: null });
+                              }}
+                              className="flex items-center gap-1 w-full text-left"
+                            >
+                              <div className="w-4 h-4 bg-blue-100 rounded-full flex items-center justify-center">
+                                <span className="text-[10px] font-medium text-blue-800">
+                                  {availableUser.Name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="font-medium text-xs text-gray-900">{availableUser.Name}</div>
+                                <div className="text-xs text-gray-500">
+                                  {availableUser.RoleId === 1 ? 'Admin' : 
+                                   availableUser.RoleId === 2 ? 'SubAdmin' : 
+                                   availableUser.RoleId === 3 ? 'TeamLead' : 'Employee'}
+                                </div>
+                              </div>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Show message when no users available */}
+                    {effectiveTeamUsers.length === 0 && assignedUsers.length === 0 && (
+                      <div className="px-1 py-2 text-xs text-gray-500 text-center">
+                        {user?.RoleId === 4 ? 'Employees cannot assign tasks' : 'No available users'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </td>
+
+          {/* Remarks Column */}
+          <td className="px-2 py-1">
+            {assignment && (
+              <EditableRemarks
+                value={assignment.Remarks || ''}
+                onSave={(value) => updateRemarks(assignment.Id, value)}
+                taskId={task.Id}
+                assignmentId={assignment.Id}
+              />
+            )}
+          </td>
+
+          {/* Due Date Column */}
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.DueDate
+              ? new Date(task.DueDate).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                })
+              : '-'}
+          </td>
+
+          {/* Timeline Column */}
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.DueDate ? getDueText(task.DueDate) : '-'}
+          </td>
+
+          {/* Last Update Column */}
+          <td className="px-2 py-1 text-xs text-gray-600">
+            {task.ModifiedOn ? (
+              <span
+                className="cursor-pointer"
+                title={`Updated on: ${format(new Date(task.ModifiedOn), 'dd MMM yyyy, hh:mm a')}`}
+              >
+                {format(new Date(task.ModifiedOn), 'dd/MM/yyyy, hh:mm a')}
+              </span>
+            ) : (
+              'Not updated yet'
+            )}
+          </td>
+
+          {/* Status Column with Review Button */}
+          <td className="px-2 py-1">
+            <div className="flex items-center gap-2">
+              <span
+                className={`
+                  inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium
+                  ${task.Status === 'Completed' ? 'bg-green-100 text-green-800' :
+                    task.Status === 'In Progress' ? 'bg-blue-100 text-blue-800' :
+                    task.Status === 'To Do' || task.Status === 'Not Started' ? 'bg-gray-100 text-gray-800' :
+                    task.Status === 'Forwarded' ? 'bg-purple-100 text-purple-800' :
+                    task.Status === 'Closed' ? 'bg-red-100 text-red-800' :
+                    task.Status === 'Reassigned' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}
+                `}
+              >
+                {task.Status}
+              </span>
+              
+              {/* Task Review Button */}
+              {shouldShowReviewButton(task) && (
+                <button
+                  onClick={() => handleTaskReview(task.Id, task.TaskName)}
+                  className="p-1 rounded bg-purple-100 text-purple-600 hover:text-purple-700 hover:bg-purple-200 transition-colors"
+                  title="Review Forwarded Task"
+                >
+                  <FontAwesomeIcon icon={faEye} className="text-xs" />
+                </button>
+              )}
+            </div>
+          </td>
+
+          {/* Priority Column */}
+          <td className="px-2 py-1">
+            <span
+              className={`
+                inline-flex items-center px-1 py-0.5 rounded-full text-xs font-medium
+                ${task.Priority === 'Critical' ? 'bg-red-100 text-red-800' :
+                  task.Priority === 'Urgent' ? 'bg-orange-100 text-orange-800' :
+                  task.Priority === 'High' ? 'bg-red-100 text-red-800' :
+                  task.Priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-green-100 text-green-800'}
+              `}
+            >
+              {task.Priority}
+            </span>
+          </td>
+
+          {/* Actions Column */}
+          <td className="px-2 py-1">
+            <div className="flex gap-1">
+              <button
+                className="p-1 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50 rounded transition-colors"
+                title="Edit"
+                onClick={() => handleEditTask(task)}
+              >
+                <FontAwesomeIcon icon={faEdit} className="text-xs" />
+              </button>
+              <button
+                className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                title="Delete"
+                onClick={() => handleDeleteTask(task.Id, task.TaskName)}
+              >
+                <FontAwesomeIcon icon={faTrash} className="text-xs" />
+              </button>
+              <button
+                className={`p-1 rounded transition-colors ${
+                  task.IsActive
+                    ? 'text-green-600 hover:text-green-800 hover:bg-green-50'
+                    : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+                }`}
+                title={task.IsActive ? 'Deactivate' : 'Activate'}
+                onClick={() => handleToggleTaskStatus(task.Id, task.IsActive, task.TaskName)}
+              >
+                <FontAwesomeIcon icon={task.IsActive ? faToggleOn : faToggleOff} className="text-xs" />
+              </button>
+              {!task.ParentTaskId && (
+                <button
+                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                  title="Add Subtask"
+                  onClick={() => {
+                    setSelectedTaskId(task.Id);
+                    setAddSubtaskModalOpen(true);
+                  }}
+                >
+                  <FontAwesomeIcon icon={faPlus} className="text-xs" />
+                </button>
+              )}
+            </div>
+          </td>
+        </tr>
+        {hasSubTasks && isExpanded && task.SubTasks!.map(subTask => renderTaskRow(subTask, true, level + 1, effectiveTeamUsers))}
+      </React.Fragment>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="flex items-center gap-2 text-blue-600">
+          <FontAwesomeIcon icon={faSpinner} className="animate-spin text-lg" />
+          <span className="text-sm">Loading tasks...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 bg-gray-50 min-h-screen">
+      {/* Header Section */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2 mb-2">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">Task Management</h1>
+            <p className="text-xs text-gray-600">Manage and track all your tasks and assignments</p>
+            {/* Show current user info and role-based filtering info */}
+            {user && (
+              <div className="text-xs text-blue-600 mt-1">
+                Logged in as: {user.name} | Role: {user.RoleId === 1 ? 'Admin' : user.RoleId === 2 ? 'SubAdmin' : user.RoleId === 3 ? 'TeamLead' : 'Employee'} | 
+                Showing tasks based on your role permissions
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 items-center">
+            <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
+              {filteredTasks.length} tasks | {assignments.length} assignments
+            </span>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-colors ${
+                showFilters ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              <FontAwesomeIcon icon={faFilter} className="text-xs" />
+              Filters
+            </button>
+            <button
+              onClick={handleAddTask}
+              className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <FontAwesomeIcon icon={faPlus} className="text-xs" />
+              Add Task
+            </button>
+          </div>
+        </div>
+
+        {/* Filters Section */}
+        {showFilters && (
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-9 gap-2">
+              <div className="relative lg:col-span-2">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search tasks..."
+                  className="w-full pl-7 pr-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                />
+                <FontAwesomeIcon
+                  icon={faSearch}
+                  className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"
+                />
+              </div>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Priorities</option>
+                {priorityOptions.map(priority => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
+              </select>
+              <select
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Teams</option>
+                {teams.map(team => (
+                  <option key={team.Id} value={team.Id}>{team.TeamName}</option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Status</option>
+                {statusOptions.map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+              <select
+                value={assigneeFilter}
+                onChange={(e) => setAssigneeFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+              >
+                <option value="">All Assignees</option>
+                <option value="unassigned">Unassigned</option>
+                {users.map(user => (
+                  <option key={user.Id} value={user.Id}>{user.Name}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={dateRange.start}
+                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                placeholder="Start date"
+              />
+              <input
+                type="date"
+                value={dateRange.end}
+                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                className="border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
+                placeholder="End date"
+              />
+              <button
+                onClick={clearFilters}
+                className="flex items-center justify-center gap-1 px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs"
+              >
+                <FontAwesomeIcon icon={faTimes} className="text-xs" />
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Alert Messages */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-2 flex items-center gap-2 text-xs">
+          <FontAwesomeIcon icon={faTimes} className="text-red-500 text-xs" />
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg mb-2 flex items-center gap-2 text-xs">
+          <FontAwesomeIcon icon={faSave} className="text-green-500 text-xs" />
+          {success}
+        </div>
+      )}
+
+      {/* Tasks Table */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto min-h-[81vh]">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {[
+                  'Task Name',
+                  'Assignee',
+                  'Remarks',
+                  'Due Date',
+                  'Timeline',
+                  'Last Update',
+                  'Status',
+                  'Priority',
+                  'Actions',
+                ].map(header => (
+                  <th
+                    key={header}
+                    className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider"
+                  >
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredTasks.length > 0 ? (
+                filteredTasks
+                  .filter(task => !task.ParentTaskId)
+                  .map(task => renderTaskRow(task))
+              ) : (
+                <tr>
+                  <td colSpan={9} className="px-2 py-8 text-center text-gray-500">
+                    <div className="flex flex-col items-center gap-2">
+                      <FontAwesomeIcon icon={faSearch} className="text-2xl text-gray-300" />
+                      <p className="text-sm">No tasks found</p>
+                      <p className="text-xs">
+                        {user?.RoleId === 4 ? 'You can only see tasks you created' : 'Try adjusting your filters or create a new task'}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* All Modals */}
+      {addEditModalOpen && (
+        <AddEditTaskModal
+          isOpen={addEditModalOpen}
+          onClose={() => {
+            setAddEditModalOpen(false);
+            setEditingTask(null);
+          }}
+          onTaskSaved={handleTaskSaved}
+          task={editingTask}
+          teams={teams}
+          onError={setError}
+        />
+      )}
+
+      {addSubtaskModalOpen && selectedTaskId && (
+        <AddSubtaskModal
+          isOpen={addSubtaskModalOpen}
+          onClose={() => {
+            setAddSubtaskModalOpen(false);
+            setSelectedTaskId(null);
+          }}
+          onSubtaskSaved={handleSubtaskCreated as (subtask: any) => void}
+          taskId={selectedTaskId}
+          teams={teams}
+          onError={setError}
+        />
+      )}
+
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center p-3 z-50">
+          <div className="bg-white rounded-lg w-full max-w-sm p-4 shadow-2xl">
+            <h3 className="text-sm font-semibold text-gray-900 mb-2">{confirmModal.title}</h3>
+            <p className="text-xs text-gray-600 mb-4">{confirmModal.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-3 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmModal.action}
+                className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-xs"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AssignmentModal
+        isOpen={assignmentModal.isOpen}
+        onClose={() =>
+          setAssignmentModal({
+            isOpen: false,
+            task: null,
+            user: null,
+            isReassignment: false,
+            currentAssignee: null,
+          })
+        }
+        onConfirm={handleAssignUser}
+        task={assignmentModal.task}
+        user={assignmentModal.user}
+        isReassignment={assignmentModal.isReassignment}
+        currentAssignee={assignmentModal.currentAssignee}
+      />
+
+      <DeleteAssignmentModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, assignment: null })}
+        onConfirm={handleDeleteAssignment}
+        assignment={deleteModal.assignment}
+        loading={deletingAssignment}
+      />
+
+      <TaskReviewModal
+        isOpen={taskReviewModal.isOpen}
+        taskName={taskReviewModal.taskName}
+        taskId={taskReviewModal.taskId}
+        onClose={() => setTaskReviewModal({ isOpen: false, taskName: '', taskId: null })}
+        onCompleteTask={handleCompleteTask}
+        onReassignTask={handleOpenReassignment}
+      />
+
+      <TaskReassignmentModal
+        isOpen={reassignmentModal.isOpen}
+        task={reassignmentModal.task}
+        onClose={() => setReassignmentModal({ isOpen: false, task: null })}
+        onReassign={handleTaskReassignment}
+      />
+
+      <ChatPanel
+        isOpen={chatPanel.isOpen}
+        onClose={() => setChatPanel({ isOpen: false, taskId: null })}
+        taskId={chatPanel.taskId}
+        users={users}
+      />
+
+      {chatPanel.isOpen && (
+        <div
+          className="fixed inset-0 bg-black/20 backdrop-blur-[0.87px] bg-opacity-50 backdrop:blur-md z-20"
+          onClick={() => setChatPanel({ isOpen: false, taskId: null })}
+        />
+      )}
+    </div>
+  );
+}
+
